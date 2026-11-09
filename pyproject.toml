@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pokedex-ops"
+version = "0.1.0"
+description = "An MCP server + Agent Skill that lets Claude operate a Pokémon Postgres database as a DBA, with an eval loop that measures it."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.3,<3",
+    "psycopg[binary]>=3.2",
+    "httpx>=0.27",
+    "pyyaml>=6",
+    "anthropic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["db: needs the local Postgres from docker compose"]
+
+[tool.setuptools]
+packages = ["server", "server.toolsets"]
