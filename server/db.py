@@ -8,6 +8,10 @@ Two paths, two roles, nothing else (see ARCHITECTURE.md, "Two connection paths")
                  because CREATE INDEX CONCURRENTLY cannot run inside a transaction.
 
 Tools never build connections themselves; they ask this module.
+
+Every execute on either path MUST pass prepare=True. Without it, psycopg 3 sends
+parameterless SQL over the simple protocol, which runs "SELECT 1; DROP ..." as two
+statements. A prepared statement is one statement, enforced by Postgres.
 """
 
 from __future__ import annotations

@@ -66,12 +66,15 @@ never reachable from a tool.
 **4. Guardrails are layered.** No single layer is trusted on its own.
 1. `sqlguard.classify` sorts each statement into read, create-index or forbidden,
    and gives the agent a clear reason when it rejects one.
-2. One statement per call. psycopg 3 uses the extended protocol, which refuses
-   multi-statement strings.
+2. One statement per call. `db.py` always executes with `prepare=True`, which
+   uses a server-side prepared statement, and Postgres refuses multiple
+   statements in one. (Verified: without it, psycopg 3 sends a query with no
+   parameters over the simple protocol, and `SELECT 1; SELECT 2` runs.)
 3. Every read runs in a `READ ONLY` transaction that is always rolled back. This
    also covers `EXPLAIN ANALYZE`, which really executes its query.
 4. The role can only SELECT, and `default_transaction_read_only` is on, with a
-   `statement_timeout`.
+   `statement_timeout`. (Verified: even with read-only switched off, INSERT,
+   CREATE INDEX and DROP fail with "permission denied" or "must be owner".)
 
 **5. The data is big enough for plans to matter.** The reference tables hold real
 PokeAPI data, but there are only about 1k Pokémon, and at that size a full table
