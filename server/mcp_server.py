@@ -11,11 +11,25 @@ from __future__ import annotations
 
 import argparse
 
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.tools.base import Tool
 
-def build(version: str):
-    """Create an MCPServer (mcp>=2: `from mcp.server.mcpserver import MCPServer`)
-    and register every ToolSpec in the chosen toolset."""
-    raise NotImplementedError
+from server.toolsets import load
+
+
+def build(version: str) -> MCPServer:
+    """Create an MCPServer exposing every ToolSpec in the chosen toolset.
+
+    The advertised input schema is the toolset's, not one inferred from the
+    handler signature: the schema is part of the versioned interface.
+    """
+    toolset = load(version)
+    tools = [
+        Tool.from_function(spec.handler, name=spec.name, description=spec.description)
+        .model_copy(update={"parameters": spec.input_schema})
+        for spec in toolset.tools
+    ]
+    return MCPServer(name="pokedex-ops", version=toolset.version, tools=tools)
 
 
 def main() -> None:

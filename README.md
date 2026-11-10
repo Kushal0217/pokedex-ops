@@ -11,11 +11,14 @@ An eval loop measures how well it does this before and after the tools are redes
 
 ```sh
 docker compose up -d                 # Postgres 17 + hypopg on localhost:5433
-python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # Windows: .venv/Scripts/pip
 python scripts/seed.py               # snapshot -> reference tables -> workload
 pytest
 python scripts/eval.py --toolset v1 --split dev
 ```
+
+The MCP server in `.mcp.json` runs `.venv/bin/python` by default. On Windows, set
+`POKEDEX_PYTHON=.venv/Scripts/python.exe` in your environment before starting Claude Code.
 
 ## Results
 

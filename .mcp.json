@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "pokedex-ops": {
-      "command": ".venv/Scripts/python.exe",
+      "command": "${POKEDEX_PYTHON:-.venv/bin/python}",
       "args": ["-m", "server.mcp_server", "--toolset", "v1"]
     }
   }
