@@ -17,8 +17,18 @@ pytest
 python scripts/eval.py --toolset v1 --split dev
 ```
 
-The MCP server in `.mcp.json` runs `.venv/bin/python` by default. On Windows, set
-`POKEDEX_PYTHON=.venv/Scripts/python.exe` in your environment before starting Claude Code.
+The MCP server in `.mcp.json` runs `${POKEDEX_PYTHON:-.venv/bin/python}`, so Linux and
+macOS need no setup. On Windows the venv interpreter lives in `.venv/Scripts/`, so set a
+user environment variable once (PowerShell or cmd):
+
+```powershell
+setx POKEDEX_PYTHON .venv/Scripts/python.exe
+```
+
+Then fully restart Claude Code (and the terminal app it runs in) so it picks up the
+variable. Check with `claude mcp list`, which should show `pokedex-ops ... ✔ Connected`.
+The path is relative, so start Claude Code from the repo root, or use the absolute path to
+`python.exe` instead.
 
 ## Results
 
