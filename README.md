@@ -11,6 +11,7 @@ An eval loop measures how well it does this before and after the tools are redes
 
 ```sh
 docker compose up -d                 # Postgres 17 + hypopg on localhost:5433
+# Cloud sessions (HTTPS-only egress proxy): run scripts/build_db_image.sh first, then `docker compose up -d`.
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # Windows: .venv/Scripts/pip
 python scripts/seed.py               # snapshot -> reference tables -> workload
 pytest
