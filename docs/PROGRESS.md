@@ -162,4 +162,4 @@ read-only role, `statement_timeout`).
 | 2026-11-10 | #5 | Database image builds behind the cloud's HTTPS-only proxy |
 | 2026-11-10 | #6 | `seed.py` implemented; PokeAPI snapshot committed |
 | 2026-11-10 | #7 | Progress and decision docs, CLAUDE.md |
-| 2026-11-10 | this PR | Population check and query timings at scale 1.0 recorded |
+| 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
