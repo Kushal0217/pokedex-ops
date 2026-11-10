@@ -12,7 +12,8 @@ An eval loop measures how well it does this before and after the tools are redes
 ```sh
 docker compose up -d                 # Postgres 17 + hypopg on localhost:5433
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # Windows: .venv/Scripts/pip
-python scripts/seed.py               # snapshot -> reference tables -> workload
+python scripts/seed.py               # snapshot -> reference tables -> workload (~10.7M rows)
+                                     # --scale 0.1 for a quick dev database
 pytest
 python scripts/eval.py --toolset v1 --split dev
 ```
