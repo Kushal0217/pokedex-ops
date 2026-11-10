@@ -4,10 +4,12 @@ An MCP server and Agent Skill that let Claude operate a Pokémon Postgres databa
 a DBA: diagnosing slow queries, proposing and applying indexes, and checking health.
 An eval loop measures how well it does this before and after the tools are redesigned.
 
-> Status: scaffolding. The interfaces are defined and the logic is not implemented yet.
-> See [ARCHITECTURE.md](ARCHITECTURE.md).
+> Status: in progress. The database, seed script and SQL guard work; the tools and the eval
+> are not implemented yet. See [docs/PROGRESS.md](docs/PROGRESS.md) for where things stand,
+> [docs/DECISIONS.md](docs/DECISIONS.md) for why, and [ARCHITECTURE.md](ARCHITECTURE.md)
+> for the design.
 
-## Quick start (once implemented)
+## Quick start
 
 ```sh
 docker compose up -d                 # Postgres 17 + hypopg on localhost:5433
@@ -16,7 +18,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"   # Windows: .venv/Scr
 python scripts/seed.py               # snapshot -> reference tables -> workload (~10.7M rows)
                                      # --scale 0.1 for a quick dev database
 pytest
-python scripts/eval.py --toolset v1 --split dev
+python scripts/eval.py --toolset v1 --split dev   # not implemented yet
 ```
 
 The MCP server in `.mcp.json` runs `${POKEDEX_PYTHON:-.venv/bin/python}`, so Linux and
