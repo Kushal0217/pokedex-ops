@@ -66,12 +66,14 @@ def _is_ident_char(c: str) -> bool:
     return c.isalnum() or c in "_$"
 
 
-def _tokenize(sql: str) -> list[_Tok]:
+def _tokenize(sql: str, starts: list[int] | None = None) -> list[_Tok]:
     """Lex just enough SQL to find keywords and statement boundaries.
-    Comments are dropped; string bodies are opaque."""
+    Comments are dropped; string bodies are opaque. If `starts` is given, the
+    start offset of each token in `sql` is appended to it."""
     toks: list[_Tok] = []
     i, n = 0, len(sql)
     while i < n:
+        start = i
         c = sql[i]
         if c.isspace():
             i += 1
@@ -127,15 +129,15 @@ def _tokenize(sql: str) -> list[_Tok]:
                     j += 1
                 toks.append(_Tok("param", sql[i:j]))
                 i = j
-                continue
-            m = _DOLLAR_TAG.match(sql, i)
-            if not m:
-                raise _ParseError("stray '$'")
-            end = sql.find(m.group(0), m.end())
-            if end < 0:
-                raise _ParseError("unterminated dollar-quoted string")
-            toks.append(_Tok("string", ""))
-            i = end + len(m.group(0))
+            else:
+                m = _DOLLAR_TAG.match(sql, i)
+                if not m:
+                    raise _ParseError("stray '$'")
+                end = sql.find(m.group(0), m.end())
+                if end < 0:
+                    raise _ParseError("unterminated dollar-quoted string")
+                toks.append(_Tok("string", ""))
+                i = end + len(m.group(0))
         elif _is_ident_start(c):
             j = i + 1
             while j < n and _is_ident_char(sql[j]):
@@ -151,6 +153,8 @@ def _tokenize(sql: str) -> list[_Tok]:
         else:
             toks.append(_Tok("punct", c))
             i += 1
+        if starts is not None and len(starts) < len(toks):
+            starts.append(start)
     return toks
 
 
@@ -292,3 +296,32 @@ def classify(sql: str) -> Verdict:
         f"{head.upper()} statements are not allowed. Only read-only queries "
         "(SELECT, WITH, VALUES, TABLE, SHOW) and CREATE INDEX are permitted."
     )
+
+
+# --------------------------------------------------------------------------- helpers for callers
+
+def leading_keyword(sql: str) -> str | None:
+    """The statement's first keyword, lowercased (after comments and opening
+    parentheses), e.g. 'select', 'with', 'show'. None if there is none or the SQL
+    doesn't lex."""
+    try:
+        toks = _tokenize(sql)
+    except _ParseError:
+        return None
+    first = next((t for t in toks if t != _Tok("punct", "(")), None)
+    return first.text if first is not None and first.kind == "word" else None
+
+
+def strip_terminator(sql: str) -> str:
+    """`sql` up to its first top-level ';' (ignoring any inside quotes or comments),
+    so that a single statement can be embedded in a larger one. Text after the ';'
+    is dropped. Call only on SQL that classify() accepted as one statement."""
+    starts: list[int] = []
+    try:
+        toks = _tokenize(sql, starts)
+    except _ParseError:
+        return sql
+    for tok, pos in zip(toks, starts):
+        if tok == _Tok("punct", ";"):
+            return sql[:pos]
+    return sql

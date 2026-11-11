@@ -30,6 +30,7 @@ ADMIN_DSN = os.environ.get("POKEDEX_ADMIN_DSN", "postgresql://postgres:postgres@
 # Tool-level limits. Kept small: tool output is context the agent pays for.
 STATEMENT_TIMEOUT_MS = int(os.environ.get("POKEDEX_STATEMENT_TIMEOUT_MS", "20000"))
 MAX_ROWS = int(os.environ.get("POKEDEX_MAX_ROWS", "50"))
+MAX_VALUE_CHARS = int(os.environ.get("POKEDEX_MAX_VALUE_CHARS", "200"))  # longer values are cut
 
 # Write path (apply_index only). Index builds on millions of rows take seconds to
 # minutes, so they get a longer limit; they must never queue behind other locks.

@@ -267,6 +267,67 @@ pytest with exit code 1. Locally, without the variable, they're still skipped.
 - **Not reproducible here:** the plain build without a proxy. CI is the test
   for it.
 
+## D16. What `describe_schema` and `run_read_query` return (2026-11-11)
+
+**Decided by the user,** from options measured on the full-scale database
+(tokens are estimated as characters divided by 4).
+
+**`describe_schema(table=None)`**
+- **S1. With no table named, it returns every table in full** (about 1,100
+  tokens), not an overview (about 230 tokens) followed by a call per table
+  (about 90 each). One call, which suits the speed priority.
+- **S2. Row counts are the planner's estimates,** labelled `rows_estimate`.
+  They're instant, and exact right after the seed's ANALYZE. An exact
+  `count(*)` takes seconds on the 5M-row tables.
+- **S3. Each index has its name, definition, `valid` flag and size.** The
+  `valid` flag is there so the agent can see the INVALID indexes a failed
+  concurrent build leaves (D12). Usage counts belong to `check_health`.
+- **S4. No column statistics.** Those are `explain_query`'s and
+  `propose_index`'s job.
+
+**Format details** (not separate decisions):
+- **Columns are compact strings,** such as `"turns integer not null"`.
+- **The result is always `{"tables": [...]}`,** even for one table.
+- **Names:** `public.` prefixes and quotes are accepted, and an unknown name
+  lists the real tables.
+
+**`run_read_query(sql)`**
+- **R1. Column names once, then rows as lists.** For 50 rows of `battles`
+  that's about 1,035 tokens, against about 2,110 for a `{column: value}`
+  object per row.
+- **R2. A fixed limit of `MAX_ROWS` (50) with a `truncated` flag,** found by
+  fetching one extra row. There's no `limit` parameter in v1, and no total
+  count, which would mean running the query twice.
+- **R3. Values over 200 characters are cut** (`MAX_VALUE_CHARS`), with a
+  marker like `… [cut: 300 chars]`.
+- **R4. Timestamps are ISO 8601 strings,** and decimals are JSON numbers
+  (`round(avg(turns), 2)` gives `32.48`).
+- **R5. `elapsed_ms` is included.**
+
+Output: `{"columns", "rows", "row_count", "truncated", "elapsed_ms"}`.
+
+**How the row limit is enforced.** psycopg's normal cursor downloads a
+query's whole result before returning anything, so `SELECT * FROM
+encounters` would pull 5M rows to show 50. The query is therefore sent as
+`SELECT * FROM (<query>) AS q LIMIT 51`: Postgres stops at 51 rows (measured
+under 1 s on `encounters`, and a test checks it).
+- **It stays one prepared statement,** so layer 2 still holds.
+- **A server-side cursor was rejected:** psycopg sends `DECLARE ... CURSOR`
+  without a prepared statement, which would weaken layer 2.
+- **The wrapper itself:**
+  - **Before wrapping,** the query's own trailing `;` is removed with
+    `sqlguard.strip_terminator`, which ignores any `;` inside quotes or
+    comments.
+  - **The closing parenthesis goes on a new line,** so a trailing
+    `-- comment` can't swallow it.
+  - **`SHOW` can't be wrapped,** and returns few rows, so it runs as is.
+- **Error positions are corrected** for the 16 characters the wrapper adds,
+  so "at character N" points into the agent's own SQL.
+
+**Also fixed while doing this.** `db.py` now closes its pools when the
+process exits. Without that, exit waited about 5 s per pool thread (20 s
+seen), which would have slowed every MCP server shutdown.
+
 ## D17. Two seed bugs, found in PR #4 and fixed (2026-11-11)
 
 PR #4 was an earlier, parallel implementation of `db.py` and `seed.py`,

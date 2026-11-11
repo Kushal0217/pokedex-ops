@@ -262,3 +262,35 @@ def test_non_forbidden_verdicts_have_no_reason():
 @pytest.mark.parametrize("sql", ["'", '"', "$", "$$", "/*", "*/", "--", "\x00", "(((", ")", "$1", "E'"])
 def test_never_raises_on_garbage(sql):
     assert isinstance(classify(sql), Verdict)
+
+
+# --------------------------------------------------------------- helpers for callers
+
+from server.sqlguard import leading_keyword, strip_terminator  # noqa: E402
+
+
+@pytest.mark.parametrize("sql, expected", [
+    ("SELECT 1", "SELECT 1"),
+    ("SELECT 1;", "SELECT 1"),
+    ("SELECT 1 ;  \n", "SELECT 1 "),
+    ("SELECT ';' ; -- trailing", "SELECT ';' "),
+    ("SELECT $$;$$;", "SELECT $$;$$"),
+    ('SELECT 1 AS "a;b";', 'SELECT 1 AS "a;b"'),
+    ("SELECT 1 -- a comment; not a terminator", "SELECT 1 -- a comment; not a terminator"),
+    ("/* ; */ SELECT 1;", "/* ; */ SELECT 1"),
+])
+def test_strip_terminator(sql, expected):
+    assert strip_terminator(sql) == expected
+
+
+@pytest.mark.parametrize("sql, expected", [
+    ("SELECT 1", "select"),
+    ("  -- comment\n show work_mem", "show"),
+    ("((SELECT 1))", "select"),
+    ("/* x */ WITH a AS (SELECT 1) SELECT * FROM a", "with"),
+    ("", None),
+    ("'unterminated", None),
+    ("42", None),
+])
+def test_leading_keyword(sql, expected):
+    assert leading_keyword(sql) == expected
