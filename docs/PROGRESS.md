@@ -229,4 +229,4 @@ aren't in the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
 | 2026-11-11 | #9 | `db.py`: pooled read and write paths, database tests |
 | 2026-11-11 | #10 | Database tests run in CI against a freshly built image |
-| 2026-11-11 | this PR | `describe_schema` and `run_read_query` |
+| 2026-11-11 | #11 | `describe_schema` and `run_read_query` |
