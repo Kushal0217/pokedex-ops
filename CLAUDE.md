@@ -1,8 +1,11 @@
 # CLAUDE.md
 
-Read these first: `docs/PROGRESS.md` (where things stand, what's open, what's
-next), `docs/DECISIONS.md` (why things are the way they are), and
-`ARCHITECTURE.md` (the design).
+**Main session:** read these first: `docs/PROGRESS.md` (where things stand,
+what's open, what's next), `docs/DECISIONS.md` (why things are the way they
+are), and `ARCHITECTURE.md` (the design).
+
+**Subagents:** skip that list. Read only the files your contract names. The
+orchestrator puts the context you need into the contract (see Orchestration).
 
 ## Workflow
 
@@ -12,8 +15,11 @@ next), `docs/DECISIONS.md` (why things are the way they are), and
   (interfaces, behaviour, trade-offs), lay out the options with a
   recommendation and wait for the user's decision. Don't just implement.
 - **Announce code changes first.** Before changing code, say what will change
-  and wait for a go-ahead, so the user can switch models. This doesn't apply to
-  questions, reading files, or running checks.
+  and wait for a go-ahead. This doesn't apply to questions, reading files, or
+  running checks. For orchestrated work, one go-ahead covers the whole plan:
+  show the plan and its task contracts once, then run the subagents without
+  asking again. Anything outside the approved plan needs a new go-ahead
+  (DECISIONS D18).
 - **Merging.** Merge a PR only when asked, and only with CI green.
 - **Keep the docs current.** In the same PR as the work, update
   `docs/PROGRESS.md`, and add an entry to `docs/DECISIONS.md` for any choice
@@ -49,4 +55,43 @@ the run instead of skipping (DECISIONS D15).
 - **Re-fetch the PokeAPI snapshot** (`seed.py --refresh`) unless the user wants
   a deliberate data update (DECISIONS D7).
 - **Tune `server/toolsets/v1.py` against eval results.** Improvements go into v2.
-- **Read `tasks/heldout/`** while designing tools.
+- **Read `tasks/heldout/`** while designing tools. Only the `task-author`
+  subagent may read or write it, and its reports never reveal heldout content.
+- **Compute eval ground truth with the pokedex-ops MCP tools.** They are the
+  thing under test; use psql.
+
+## Orchestration (main session only; subagents skip this section)
+
+The main session runs on Opus and orchestrates. The workers in
+`.claude/agents/` run on Sonnet (DECISIONS D18).
+
+**Keep in the main session:** design decisions and the questions to the user,
+the agent-facing interface (`server/toolsets/`), task contracts, all git work,
+`docs/PROGRESS.md` and `docs/DECISIONS.md`, final verification, and the
+explanations to the user.
+
+**Delegate:**
+- `implementer`: a scoped code change that touches several files or needs a
+  lot of reading.
+- `reviewer`: after each implementer change, before the commit.
+- `task-author`: every eval task, dev and heldout.
+
+**Do not delegate** a change you can finish in a few minutes. A subagent starts
+with no context, so the cold start costs more than the work.
+
+**Contract for each delegation:**
+1. Goal: one or two sentences.
+2. Files allowed to change.
+3. Context: the files and DECISIONS entries to read, and the facts the agent
+   needs from this conversation.
+4. Acceptance: the exact command that must pass.
+5. Out of scope.
+
+**Parallel work:** only when the agents change different files. Otherwise pass
+`isolation: "worktree"` on the Agent call.
+
+**Verify:** after an implementer reports done, run the tests yourself before
+the review or the commit. Never trust a "tests pass" report alone.
+
+**Measure:** add one row per delegation to `docs/orchestration-log.md`, so the
+setup can be tuned from data.

@@ -385,6 +385,61 @@ an open item).
 up after 60 s. Once this session, Docker exited during start-up, and the old
 loop waited for it forever.
 
+## D18. An Opus orchestrator with Sonnet subagents (2026-11-11)
+
+**Decision.** The main session runs on Opus and orchestrates. Three workers in
+`.claude/agents/` run on Sonnet:
+
+| agent | job | tools | effort |
+|-------|-----|-------|--------|
+| `implementer` | one scoped code change from a contract; runs the tests | Read, Edit, Write, Glob, Grep, Bash | medium |
+| `reviewer` | finds defects in a diff and reports them; never edits | Read, Glob, Grep, Bash | high |
+| `task-author` | writes and validates eval tasks; the only reader of `tasks/heldout/` | Read, Write, Edit, Glob, Grep, Bash | high |
+
+**Why.** D10 already split the work: Opus for heavy work, Sonnet for routine.
+Until now the user switched models by hand. The agent files make that split
+automatic. Opus keeps what needs judgment (design, contracts, verification,
+docs, git). Sonnet does the bulk work in its own context, so that context does
+not fill the main session.
+
+**Safety.**
+- **An explicit `tools` list on every agent.** Without one, a subagent
+  inherits every MCP tool, `apply_index` included. The list also leaves out
+  `Agent`, so workers cannot start more workers.
+- **`permissionMode` is not overridden.** Workers follow the user's normal
+  permission rules.
+- **Workers do no git and do not edit `docs/`.** The orchestrator owns both,
+  so the work of two agents cannot mix in one commit, and the docs stay in one
+  voice.
+
+**Eval integrity.** If the session that designs the tools writes the heldout
+tasks, it knows the test (ARCHITECTURE decision 7). The `task-author` has its
+own context, writes them, and reports only counts. **Limit:** this rule is an
+instruction. The `tools` field cannot limit a tool to a folder. If the log
+shows a breach, the next step is a hook that blocks reads of `tasks/heldout/`.
+
+**Context cost.** Subagents read CLAUDE.md. Its "read these first" list (about
+725 lines of docs) now applies to the main session only. Each contract carries
+the context a worker needs instead.
+
+**Go-ahead rule (amends D10).** The user decided: one go-ahead covers a whole
+orchestrated plan. The orchestrator shows the plan and its task contracts,
+waits once, and then runs the workers without asking again. Anything outside
+the approved plan needs a new go-ahead. The old reason for asking before each
+change, switching models, no longer applies.
+
+**Not chosen.**
+- **More agent types** (for example a separate test writer or explorer). Each
+  description is in the orchestrator's context on every turn, and agents with
+  overlapping jobs make the choice unclear. The built-in Explore agent already
+  covers broad searches.
+- **`isolation: worktree` in the agent files.** It is chosen per call instead,
+  only for parallel work. One worker in the main checkout is simpler, and its
+  changes are visible at once.
+
+**Measurement.** Each delegation gets a row in `docs/orchestration-log.md`:
+tokens, time, rework and review findings. The setup is tuned from that data.
+
 ## D19. A seeded database starts settled and with clean statistics (2026-11-11)
 
 Three small changes, first written in PR #4 and listed in D17 as not ported.

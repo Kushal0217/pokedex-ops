@@ -205,6 +205,9 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 - [x] **pg_stat_statements is reset after seeding** since PR #14, by `seed.py`
   (DECISIONS D19). Eval fixtures can still reset it per task.
 - [x] **Database tests run in CI** since PR #10 (DECISIONS D15).
+- [ ] **The heldout rule for subagents is an instruction only** (D18). Add a
+  hook that blocks reads of `tasks/heldout/` if the orchestration log shows
+  a breach.
 - [ ] **GitHub Actions warns that Node 20 is deprecated** for
   `actions/checkout@v4` and `actions/setup-python@v5`, which are forced onto
   Node 24 for now. Nothing fails. Fix: move to newer major versions of both
@@ -214,7 +217,9 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 The remaining four tools in `server/tools.py`: `explain_query` (a compact
 plan summary), `propose_index` (hypopg), `check_health` and `apply_index`.
-Design questions about their output go to the user first. The two done so far
+Design questions about their output go to the user first. This is the
+first work for the Opus orchestrator and its Sonnet subagents (D18): record
+each delegation in `docs/orchestration-log.md`. The two done so far
 aren't in the skill's `reference/tools.md` yet; that's part of step 3.
 
 ## History
@@ -233,4 +238,5 @@ aren't in the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #10 | Database tests run in CI against a freshly built image |
 | 2026-11-11 | #11 | `describe_schema` and `run_read_query` |
 | 2026-11-11 | #12 | Fix two seed bugs found in #4 (learnset game order; workload row order); snapshot re-fetched; #4 closed |
+| 2026-11-11 | #13 | Opus orchestrator with three Sonnet subagents; CLAUDE.md go-ahead rule amended (D18) |
 | 2026-11-11 | #14 | Seed: VACUUM after the workload, reset pg_stat_statements; tool connections labelled (D19) |
