@@ -29,7 +29,8 @@ start Docker and the database again in any turn that needs them:
 
 ```sh
 pgrep dockerd >/dev/null || (setsid nohup dockerd >/tmp/dockerd.log 2>&1 < /dev/null &)
-until docker info >/dev/null 2>&1; do sleep 1; done   # can take more than 3 s
+timeout 60 sh -c 'until docker info >/dev/null 2>&1; do sleep 1; done' \
+  || { echo "Docker didn't start"; tail -5 /tmp/dockerd.log; }   # can take more than 3 s; never wait forever
 scripts/build_db_image.sh        # only if the image isn't built yet; plain `docker compose build` on a laptop
 docker compose up -d             # Postgres 17 + hypopg on localhost:5433
 python scripts/seed.py           # about 31 s and 1.0 GB at full scale; add --scale 0.1 for a quick one
