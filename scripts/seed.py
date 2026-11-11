@@ -282,6 +282,29 @@ def load_workload(scale: float) -> None:
     log(f"workload (scale {scale}): " + ", ".join(f"{t}={n}" for t, n in counts.items())
         + f" in {time.monotonic() - started:.0f}s")
 
+    # Mark every page all-visible and set the hint bits now, so the first query
+    # after a seed runs like the hundredth, whether or not autovacuum has got
+    # there yet (DECISIONS D19). VACUUM can't run in a transaction, hence a
+    # separate autocommit connection. workload.sql already ends with ANALYZE.
+    started = time.monotonic()
+    with psycopg.connect(config.DBA_DSN, autocommit=True) as conn:
+        for t in WORKLOAD_TABLES:
+            conn.execute(f"VACUUM {t}")
+    log(f"workload: vacuumed in {time.monotonic() - started:.0f}s")
+
+
+def reset_query_stats() -> None:
+    """Empty pg_stat_statements, so it starts with the workload's queries, not the
+    seed's own INSERTs (DECISIONS D19). Only the superuser may reset it, so this is
+    the one place seed.py uses ADMIN_DSN."""
+    import psycopg
+
+    from server import config
+
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as conn:
+        conn.execute("SELECT pg_stat_statements_reset()")
+    log("pg_stat_statements: reset")
+
 
 # --------------------------------------------------------------------------- main
 
@@ -305,6 +328,8 @@ def main(argv: list[str] | None = None) -> None:
             load_reference()
         else:
             load_workload(args.scale)
+    if set(stages) - {"fetch"}:  # the database changed
+        reset_query_stats()
 
 
 if __name__ == "__main__":

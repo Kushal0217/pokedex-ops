@@ -177,6 +177,17 @@ def test_create_index_builds_the_index(scratch):
 
 
 @pytest.mark.db
+def test_tool_sessions_are_labelled_in_pg_stat_activity(scratch):
+    """D19: a health check can tell the tools' own sessions from everyone else's."""
+    assert read_one("SHOW application_name") == (db.APP_NAMES["read"],)
+    db.create_index(f"CREATE INDEX CONCURRENTLY zz_pytest_label ON {scratch} (v)")
+    with admin() as a:
+        names = {r[0] for r in a.execute(
+            "SELECT application_name FROM pg_stat_activity WHERE usename = 'pokedex_dba'").fetchall()}
+    assert db.APP_NAMES["write"] in names
+
+
+@pytest.mark.db
 @pytest.mark.parametrize("sql", [
     f"DROP TABLE {SCRATCH}",
     f"TRUNCATE {SCRATCH}",

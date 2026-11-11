@@ -384,3 +384,37 @@ an open item).
 **Also in this change.** The Docker start-up command in CLAUDE.md now gives
 up after 60 s. Once this session, Docker exited during start-up, and the old
 loop waited for it forever.
+
+## D19. A seeded database starts settled and with clean statistics (2026-11-11)
+
+Three small changes, first written in PR #4 and listed in D17 as not ported.
+
+**1. `VACUUM` after the workload stage.** Bulk inserts leave the visibility map
+empty, and the first read of each page writes hint bits. So until autovacuum
+gets there, a query after a seed is slower and does writes that later runs
+don't. The eval measures query times, so its numbers would depend on whether
+autovacuum had run yet.
+- **Measured** (scale 1.0, right after a seed without the VACUUM; autovacuum
+  had not run): `encounters` had 0 of 49,194 pages all-visible. An index-only
+  scan over 400k ids did 400,001 heap fetches, touched 6,043 buffers (3,936
+  dirtied, 4,517 written) and took 104.8 ms. After `VACUUM`: 0 heap fetches,
+  1,102 buffers, 33.2 ms.
+- **Cost:** about 1 s at scale 1.0. The stage's `count(*)` checks already set
+  the hint bits, so the VACUUM mostly marks pages all-visible.
+- Plain `VACUUM`, not `VACUUM ANALYZE`: `workload.sql` already ends with ANALYZE.
+
+**2. `pg_stat_statements` is reset after any stage that changes the database**
+(this closes the open item in PROGRESS). Otherwise the seed's own INSERTs are
+the most expensive statements in it, and a health check or the agent would see
+them first. The reset needs the superuser, so it is the one place `seed.py`
+uses `ADMIN_DSN`, which ARCHITECTURE decision 3 allows. Eval fixtures can still
+reset per task; this makes the starting state clean.
+
+**3. The tools' connections carry `application_name`** (`pokedex-ops:read`,
+`pokedex-ops:write`). In `pg_stat_activity` a health check can then tell the
+tools' own sessions from everyone else's, for example to leave itself out of
+"active connections".
+
+**Tests.** Each was checked to fail without its change: the VACUUM test failed
+on a database seeded by the old code (`ops_audit_log: 0 of 1 pages
+all-visible`), and the label test failed without the `db.py` change.

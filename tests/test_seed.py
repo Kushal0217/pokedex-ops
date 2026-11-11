@@ -222,3 +222,58 @@ def test_workload_rows_do_not_depend_on_the_query_plan(settings):
     """Regression (D17): row order used to follow the join plan, so a fresh build and a
     rebuild at full scale differed. `enable_material = off` reproduced it at this size."""
     assert _workload_fingerprint(settings) == _workload_fingerprint([])
+
+
+# ---------------------------------------------------------------- state after seeding (D19)
+
+@pytest.mark.parametrize("argv, expected", [
+    (["--only", "fetch"], ["fetch"]),
+    (["--only", "reference"], ["reference", "reset"]),
+    (["--only", "workload"], ["workload", "reset"]),
+    ([], ["reference", "workload", "reset"]),
+])
+def test_query_stats_are_reset_after_any_stage_that_changes_the_database(monkeypatch, argv, expected):
+    calls: list[str] = []
+    monkeypatch.setattr(seed, "fetch_snapshot", lambda gens: calls.append("fetch"))
+    monkeypatch.setattr(seed, "load_reference", lambda: calls.append("reference"))
+    monkeypatch.setattr(seed, "load_workload", lambda scale: calls.append("workload"))
+    monkeypatch.setattr(seed, "reset_query_stats", lambda: calls.append("reset"))
+    seed.main(argv)
+    assert calls == expected
+
+
+@pytest.mark.db
+def test_reset_query_stats_empties_pg_stat_statements():
+    """This resets the dev database's statistics, as every seed does anyway."""
+    import psycopg
+
+    from server import config
+
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as conn:
+        def marker_count() -> int:
+            return conn.execute("SELECT count(*) FROM pg_stat_statements WHERE query LIKE %s",
+                                ("%zz_pytest_marker%",)).fetchone()[0]
+
+        conn.execute("SELECT count(*) AS zz_pytest_marker FROM types")
+        assert marker_count() >= 1
+        seed.reset_query_stats()
+        assert marker_count() == 0
+
+
+@pytest.mark.db
+def test_workload_tables_are_vacuumed_after_seeding():
+    """Every page is all-visible, so an index-only scan needs no heap fetches and the
+    first query after a seed isn't slower than the rest. Without the VACUUM, a fresh
+    seed at scale 1.0 had 0 of 49,194 encounters pages all-visible."""
+    import psycopg
+
+    from server import config
+
+    with psycopg.connect(config.ADMIN_DSN) as conn:
+        rows = conn.execute(
+            "SELECT relname, relpages, relallvisible FROM pg_class WHERE relname = ANY(%s) AND relkind = 'r'",
+            (list(seed.WORKLOAD_TABLES),),
+        ).fetchall()
+    assert len(rows) == len(seed.WORKLOAD_TABLES)
+    for name, pages, visible in rows:
+        assert pages > 0 and visible == pages, f"{name}: {visible} of {pages} pages all-visible"
