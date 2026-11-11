@@ -88,6 +88,48 @@ PostgreSQL 17.11, `hypopg` and `pg_stat_statements` installed, and
   most-common values for `team_members.pokemon_id`. Estimated vs actual rows:
   28,400 vs 26,774 for the most popular Pokémon, 1,446 vs 1,342 for the rarest.
 
+**Fully populated at scale 1.0** (checked 2026-11-10). All 13 tables match
+their expected row counts exactly, and no `team_members` row points at a
+missing team and no `teams` row at a missing trainer. Between sessions the
+Docker service had stopped, so Postgres ran crash recovery on restart. It
+recovered cleanly and the planner statistics survived for all 13 tables, but
+the activity counters in `pg_stat_user_tables` were reset (`last_analyze`
+reads null). That's expected after an unclean stop, and harmless.
+
+**Query timings at scale 1.0** (2026-11-10). For each query: one warm-up run,
+then the median of 3 runs, as `postgres` against the cloud database. "Cost" is
+the planner's estimate (`EXPLAIN`); "cost with index" is the same plan with
+the listed index created hypothetically with hypopg (nothing built).
+
+| query | SQL | median | cost now | cost with index | index tried |
+|-------|-----|--------|----------|-----------------|-------------|
+| Primary-key lookup (baseline) | `SELECT * FROM battles WHERE id = 123456` | 0.6 ms | 8 | n/a | already indexed |
+| Teams of one trainer | `SELECT * FROM teams WHERE trainer_id = 4412` | 15.8 ms | 8,759 | 16 | `teams (trainer_id)` |
+| Battles won by a team | `SELECT count(*) FROM battles WHERE winner_team_id = 4242` | 47.6 ms | 32,364 | 4 | `battles (winner_team_id)` |
+| A trainer's rosters | `SELECT t.name, m.slot, m.pokemon_id FROM teams t JOIN team_members m ON m.team_id = t.id WHERE t.trainer_id = 4412` | 15.6 ms | 8,778 | 68 | `teams (trainer_id)` |
+| Latest 20 encounters of a trainer | `SELECT * FROM encounters WHERE trainer_id = 123 ORDER BY encountered_at DESC LIMIT 20` | 83.0 ms | 76,238 | 83 | `encounters (trainer_id, encountered_at)` |
+| Teams using Pikachu | `SELECT count(DISTINCT team_id) FROM team_members WHERE pokemon_id = 25` | 55.8 ms | 36,573 | 4,615 | `team_members (pokemon_id)` |
+| Ranked battles in one week | `SELECT count(*) FROM battles WHERE is_ranked AND played_at >= '2023-03-01' AND played_at < '2023-03-08'` | 66.4 ms | 34,455 | 17,756 | `battles (played_at)` |
+| A trainer's win count | `SELECT count(*) FROM battles b JOIN teams t ON t.id = b.winner_team_id WHERE t.trainer_id = 4412` | 65.7 ms | 40,227 | 8,764 | `battles (winner_team_id)` only |
+| Top 10 most-used Pokémon | `SELECT p.name, count(*) FROM team_members m JOIN pokemon p ON p.id = m.pokemon_id GROUP BY p.name ORDER BY 2 DESC LIMIT 10` | 225.1 ms | 43,180 | n/a | none would help |
+| Shiny catches per location | `SELECT location, count(*) FROM encounters WHERE is_shiny AND caught GROUP BY location` | 101.9 ms | 71,035 | n/a | none would help |
+
+What this means for the task set (step 3):
+- **Clear wins.** Lookups on an unindexed column scan the whole table, and the
+  right index cuts the estimated cost by 100 to 8,000 times. These make good
+  "find the missing index" tasks.
+- **Harder cases worth a task each.**
+  - **The win-count join needs two indexes.** With only `battles
+    (winner_team_id)` it still scans `teams`; `teams (trainer_id)` is needed too.
+  - **The one-week range only halves** with `battles (played_at)`, because
+    `is_ranked` is filtered after the index.
+  - **Pikachu is in the popular pool,** so an index helps far less there than
+    for a rare Pokémon.
+- **"No index will help" is a valid answer.** The two aggregates read every
+  row by nature, and a good agent should say so instead of adding an index.
+- **Wall-clock times are small** (all under 250 ms) because the 1.0 GB database
+  fits in memory. Grade on plans and estimated costs, not timings.
+
 ## Open items
 
 - [ ] **Plain Docker build on the laptop.** `docker compose build` with no
@@ -119,3 +161,5 @@ read-only role, `statement_timeout`).
 | 2026-11-10 | #3 | Windows setup for the MCP server documented |
 | 2026-11-10 | #5 | Database image builds behind the cloud's HTTPS-only proxy |
 | 2026-11-10 | #6 | `seed.py` implemented; PokeAPI snapshot committed |
+| 2026-11-10 | #7 | Progress and decision docs, CLAUDE.md |
+| 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
