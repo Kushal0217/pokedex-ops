@@ -244,3 +244,4 @@ the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #13 | Opus orchestrator with three Sonnet subagents; CLAUDE.md go-ahead rule amended (D18) |
 | 2026-11-11 | #14 | Seed: VACUUM after the workload, reset pg_stat_statements; tool connections labelled (D19) |
 | 2026-11-11 | #15 | `explain_query` (raw EXPLAIN ANALYZE text, BUFFERS, timeout fallback); first work built by the orchestrator setup (D20) |
+| 2026-11-11 | #16 | Implementer subagent must show each new test failing with its behaviour broken (D21) |

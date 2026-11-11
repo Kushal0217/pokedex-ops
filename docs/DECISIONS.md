@@ -522,3 +522,19 @@ from a contract; the reviewer (Sonnet) found the cancel bug by reproducing it
 (a cancel at 0.5 s gave the note "cancelled after 20 s"), and two tests that
 could not fail. All three were fixed, and the new cancel test was checked to
 fail without the fix. Costs are in `docs/orchestration-log.md`.
+
+## D21. Implementers prove each new test can fail (2026-11-11)
+
+**Decision** (user, from the first orchestrated work, D20). The implementer
+subagent must break the behaviour each new test checks, see the test fail,
+then restore the code, and list what it broke in its report.
+
+**Why.** In the explain_query work, two of the implementer's tests could not
+fail: one passed whether or not the fallback was wrong, and one never reached
+the read-only transaction it claimed to test. The reviewer found them, but a
+test that passes either way gives false confidence, and the reviewer's time is
+better spent on bugs. The orchestrator already did this check by hand.
+
+**Risk and control.** The check edits code for a moment, so a worker could
+leave it broken. "Done" therefore also requires `git diff` to show the code
+restored exactly, and the orchestrator still runs the tests itself (D18).
