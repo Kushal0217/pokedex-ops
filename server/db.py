@@ -43,6 +43,10 @@ from server.errors import ToolError
 _lock = threading.Lock()
 _pools: dict[str, ConnectionPool] = {}
 
+# Shown in pg_stat_activity, so the tools' own sessions can be told apart from
+# everyone else's (DECISIONS D19).
+APP_NAMES = {"read": "pokedex-ops:read", "write": "pokedex-ops:write"}
+
 _UNREACHABLE = "The database is not reachable. Start it with `docker compose up -d`, then try again."
 _LOST = ("Lost the connection to the database. Try again; if it keeps happening, "
          "check that the database is running (`docker compose ps`).")
@@ -60,7 +64,8 @@ def _pool(kind: str) -> ConnectionPool:
             )
             pool = ConnectionPool(
                 dsn, min_size=1, max_size=max_size, timeout=config.POOL_TIMEOUT_S,
-                kwargs={"autocommit": True}, name=f"pokedex-{kind}", open=True,
+                kwargs={"autocommit": True, "application_name": APP_NAMES[kind]},
+                name=f"pokedex-{kind}", open=True,
             )
             _pools[kind] = pool
         return pool

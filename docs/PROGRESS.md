@@ -27,16 +27,16 @@ Steps from ARCHITECTURE.md, "Build order".
 | `server/sqlguard.py` | implemented, plus `strip_terminator` and `leading_keyword` helpers | `tests/test_sqlguard.py`, 156 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
 | `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
-| `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 23 cases (22 need the database) |
+| `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 24 cases (23 need the database) |
 | `server/tools.py` | `describe_schema` and `run_read_query` implemented; the other four are stubs | `tests/test_tools.py`, 41 cases (27 need the database) |
-| `scripts/seed.py` | implemented | `tests/test_seed.py`, 29 cases |
+| `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 256 passing locally with the database running. CI runs all of
-them in two jobs: `test` (`pytest -m "not db"`, 204 tests) and `db-test` (the
-52 database tests against a freshly built image). Locally, the database tests
+Test suite: 263 passing locally with the database running. CI runs all of
+them in two jobs: `test` (`pytest -m "not db"`, 208 tests) and `db-test` (the
+55 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -202,9 +202,8 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 - [ ] **v1 tool descriptions** in `server/toolsets/v1.py` are `TODO`. They
   must be written before the baseline eval (step 4), as a plain first draft,
   not tuned.
-- [ ] **pg_stat_statements is not reset after seeding**, so the seed's own
-  statements show up in it. Decide whether `seed.py` or the eval fixtures
-  should reset it.
+- [x] **pg_stat_statements is reset after seeding** since PR #14, by `seed.py`
+  (DECISIONS D19). Eval fixtures can still reset it per task.
 - [x] **Database tests run in CI** since PR #10 (DECISIONS D15).
 - [ ] **The heldout rule for subagents is an instruction only** (D18). Add a
   hook that blocks reads of `tasks/heldout/` if the orchestration log shows
@@ -240,3 +239,4 @@ aren't in the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #11 | `describe_schema` and `run_read_query` |
 | 2026-11-11 | #12 | Fix two seed bugs found in #4 (learnset game order; workload row order); snapshot re-fetched; #4 closed |
 | 2026-11-11 | #13 | Opus orchestrator with three Sonnet subagents; CLAUDE.md go-ahead rule amended (D18) |
+| 2026-11-11 | #14 | Seed: VACUUM after the workload, reset pg_stat_statements; tool connections labelled (D19) |
