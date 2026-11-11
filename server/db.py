@@ -25,6 +25,7 @@ build itself is never retried.
 
 from __future__ import annotations
 
+import atexit
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -73,6 +74,10 @@ def close() -> None:
         _pools.clear()
 
 
+# Without this, interpreter exit waits ~5 s for each pool thread that was never stopped.
+atexit.register(close)
+
+
 def _release(pool: ConnectionPool, conn: psycopg.Connection) -> None:
     """Return a connection, unless it is in a state the next caller must not inherit."""
     if not conn.closed and conn.info.transaction_status != TransactionStatus.IDLE:
@@ -105,7 +110,7 @@ def _checkout(pool: ConnectionPool, setup: Callable[[psycopg.Connection], None])
 
 # --------------------------------------------------------------------------- errors
 
-def _tool_error(e: psycopg.Error, timeout_ms: int | None = None) -> ToolError:
+def _tool_error(e: psycopg.Error, timeout_ms: int | None = None, position_offset: int = 0) -> ToolError:
     """Turn a database error into a message the agent can act on."""
     if isinstance(e, pgerr.QueryCanceled):
         limit = f" after {(timeout_ms or config.STATEMENT_TIMEOUT_MS) / 1000:g} s"
@@ -126,7 +131,9 @@ def _tool_error(e: psycopg.Error, timeout_ms: int | None = None) -> ToolError:
         return ToolError(_LOST)
     msg = primary
     if diag.statement_position:
-        msg += f" (at character {diag.statement_position})"
+        pos = int(diag.statement_position) - position_offset
+        if pos > 0:  # an error inside a caller's wrapper, not the caller's own SQL, has no position
+            msg += f" (at character {pos})"
     if diag.message_detail:
         msg += f". Detail: {diag.message_detail}"
     if diag.message_hint:
@@ -174,11 +181,13 @@ def _begin_read(conn: psycopg.Connection) -> None:
 
 
 @contextmanager
-def read_only() -> Iterator[Cursor]:
+def read_only(position_offset: int = 0) -> Iterator[Cursor]:
     """Cursor inside a READ ONLY transaction that is always rolled back.
 
     Database errors raised inside the block come out as ToolError with an
-    agent-readable message.
+    agent-readable message. `position_offset`: characters a caller added in front
+    of the agent's SQL, subtracted from error positions so they point into the
+    agent's own text.
     """
     pool = _pool("read")
     conn = _checkout(pool, _begin_read)
@@ -187,7 +196,7 @@ def read_only() -> Iterator[Cursor]:
             try:
                 yield Cursor(cur)
             except psycopg.Error as e:
-                raise _tool_error(e) from e
+                raise _tool_error(e, position_offset=position_offset) from e
     finally:
         if not conn.broken:
             try:

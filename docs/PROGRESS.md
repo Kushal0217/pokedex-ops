@@ -14,7 +14,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | # | step | status |
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
-| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard` and `db.py` done; `tools.py` not started |
+| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 2 of the 6 tools done |
 | 3 | SKILL.md and the task set | not started |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
@@ -24,19 +24,19 @@ Steps from ARCHITECTURE.md, "Build order".
 
 | module | status | tests |
 |--------|--------|-------|
-| `server/sqlguard.py` | implemented | `tests/test_sqlguard.py`, 141 cases |
+| `server/sqlguard.py` | implemented, plus `strip_terminator` and `leading_keyword` helpers | `tests/test_sqlguard.py`, 156 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
 | `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 23 cases (22 need the database) |
-| `server/tools.py` | stubs (all six tools) | none |
+| `server/tools.py` | `describe_schema` and `run_read_query` implemented; the other four are stubs | `tests/test_tools.py`, 41 cases (27 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 29 cases |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 195 passing locally with the database running. CI runs all of
-them in two jobs: `test` (`pytest -m "not db"`, 173 tests) and `db-test` (the
-22 database tests against a freshly built image). Locally, the database tests
+Test suite: 251 passing locally with the database running. CI runs all of
+them in two jobs: `test` (`pytest -m "not db"`, 202 tests) and `db-test` (the
+49 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -165,6 +165,31 @@ consecutive runs (about 1.7 s each). What they show:
 - **The tests:** `22 passed, 173 deselected`, with nothing skipped.
 - **The whole job** took about 40 s.
 
+**`describe_schema` and `run_read_query`** (2026-11-11), against the
+full-scale database, 41 tests in `tests/test_tools.py`:
+- **`describe_schema`.**
+  - **Size:** all 13 tables come back in about 1,100 tokens, and `battles`
+    alone in about 92.
+  - **Row estimates** equal the exact counts after seeding.
+  - **INVALID indexes** show `valid: false`.
+  - **An unknown name** lists the real tables.
+- **`run_read_query`.**
+  - **Row limit:** `SELECT * FROM encounters` returns 50 rows,
+    `truncated: true`, well under 1 s, without transferring the table.
+  - **Exactly 50 rows** are not marked truncated.
+  - **ORDER BY** is kept.
+  - **Every read form works:** `TABLE`, `VALUES`, `WITH`, `UNION`,
+    duplicate column names, trailing `;`, and trailing comments.
+  - **`SHOW`** runs unwrapped.
+  - **Values:** decimals are numbers, timestamps are ISO 8601, and values
+    over 200 characters are cut.
+  - **Refusals with a reason:** DELETE, EXPLAIN (points to
+    `explain_query`), CREATE INDEX (points to `apply_index`), and multiple
+    statements.
+  - **Error positions** point into the agent's own SQL.
+- **Exit:** a script using the tools now exits in 0.75 s (it was about 20 s
+  before the pools were closed at exit).
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -185,9 +210,10 @@ consecutive runs (about 1.7 s each). What they show:
 
 ## Next
 
-`server/tools.py`: the six tools, starting with `describe_schema` and
-`run_read_query`. Design questions about tool output (what to return, how
-compact) go to the user first.
+The remaining four tools in `server/tools.py`: `explain_query` (a compact
+plan summary), `propose_index` (hypopg), `check_health` and `apply_index`.
+Design questions about their output go to the user first. The two done so far
+aren't in the skill's `reference/tools.md` yet; that's part of step 3.
 
 ## History
 
@@ -203,3 +229,4 @@ compact) go to the user first.
 | 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
 | 2026-11-11 | #9 | `db.py`: pooled read and write paths, database tests |
 | 2026-11-11 | #10 | Database tests run in CI against a freshly built image |
+| 2026-11-11 | this PR | `describe_schema` and `run_read_query` |
