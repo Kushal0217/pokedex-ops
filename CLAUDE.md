@@ -8,6 +8,9 @@ next), `docs/DECISIONS.md` (why things are the way they are), and
 
 - **Branches.** Start each piece of work on a new branch from `main`. Never add
   commits to a branch whose PR is already merged.
+- **Design decisions belong to the user.** When there's a real choice
+  (interfaces, behaviour, trade-offs), lay out the options with a
+  recommendation and wait for the user's decision. Don't just implement.
 - **Announce code changes first.** Before changing code, say what will change
   and wait for a go-ahead, so the user can switch models. This doesn't apply to
   questions, reading files, or running checks.
@@ -20,11 +23,13 @@ next), `docs/DECISIONS.md` (why things are the way they are), and
 
 ## Database in a cloud session
 
-The `pokedex-ops` cloud environment allows the hosts needed below. The Docker
-service does not start by itself:
+The `pokedex-ops` cloud environment allows the hosts needed below. Every
+process stops while the session is idle between turns (DECISIONS D14), so
+start Docker and the database again in any turn that needs them:
 
 ```sh
 pgrep dockerd >/dev/null || (setsid nohup dockerd >/tmp/dockerd.log 2>&1 < /dev/null &)
+until docker info >/dev/null 2>&1; do sleep 1; done   # can take more than 3 s
 scripts/build_db_image.sh        # only if the image isn't built yet; plain `docker compose build` on a laptop
 docker compose up -d             # Postgres 17 + hypopg on localhost:5433
 python scripts/seed.py           # about 31 s and 1.0 GB at full scale; add --scale 0.1 for a quick one
