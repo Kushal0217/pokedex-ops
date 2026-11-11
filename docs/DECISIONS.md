@@ -216,8 +216,7 @@ them, with a reason, when it isn't reachable. Write tests use a scratch table
 (`zz_pytest_scratch`) that they create and drop. CI still runs
 `pytest -m "not db"`.
 
-**Next.** Building the image in CI so these tests run on every PR. Planned as
-its own PR.
+**CI.** They run there too since PR #10 (D15).
 
 **Small change alongside.** `ToolError` moved to `server/errors.py`, because
 `db.py` raises it and can't import `tools.py`, which imports `db.py`.
@@ -236,3 +235,33 @@ crash recovery when restarted, which has always come back clean.
 - **Docker can take more than 3 seconds to start,** so wait for `docker info`
   to succeed rather than sleeping for a fixed time.
 - **The pool's retry (D11) covers the same event** from the application's side.
+
+## D15. Database tests run in CI, against an image built every run (2026-11-11)
+
+**Decision.** CI has two jobs:
+- **`test`:** the fast job without a database, as before.
+- **`db-test`:** builds the image with plain `docker compose build`, starts
+  it, seeds at `--scale 0.1`, and runs `pytest -m db`.
+
+The image is built fresh on every run, with no caching.
+
+**Why.** The database tests are the guardrail tests (layers 2 to 4) and the
+write-path tests, so they should run on every PR. Building fresh costs a
+minute or two, but a cached image could hide a broken Dockerfile. It also
+exercises the plain build without a proxy, which until now had never been run
+outside the cloud (open item since PR #5).
+
+**Considered.** Caching the image between runs: faster, but more
+configuration, and a stale cache can mask Dockerfile breakage.
+
+**Guard.** The job sets `POKEDEX_REQUIRE_DB=1`. Without it, `conftest.py`
+would *skip* the database tests when Postgres is unreachable, and a broken
+setup would show as a green run. With it, an unreachable database stops
+pytest with exit code 1. Locally, without the variable, they're still skipped.
+
+**Verified before pushing.**
+- **The CI steps:** run in the cloud against a fresh volume (0 tables at
+  start). The seed at scale 0.1 took 4.4 s, and all 22 database tests passed.
+- **The guard:** with `POKEDEX_REQUIRE_DB=1` and no database, pytest exits 1.
+- **Not reproducible here:** the plain build without a proxy. CI is the test
+  for it.
