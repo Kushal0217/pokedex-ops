@@ -5,7 +5,7 @@ Update this file in the same PR as the work it describes. The reasons behind
 choices live in [DECISIONS.md](DECISIONS.md); the design is in
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-_Last updated: 2026-11-10._
+_Last updated: 2026-11-11._
 
 ## Build order
 
@@ -14,7 +14,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | # | step | status |
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
-| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard` done; `db.py` and `tools.py` not started |
+| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard` and `db.py` done; `tools.py` not started |
 | 3 | SKILL.md and the task set | not started |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
@@ -27,15 +27,16 @@ Steps from ARCHITECTURE.md, "Build order".
 | `server/sqlguard.py` | implemented | `tests/test_sqlguard.py`, 141 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
 | `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
-| `server/db.py` | stub | none |
+| `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 23 cases (22 need the database) |
 | `server/tools.py` | stubs (all six tools) | none |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 29 cases |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 172 passing. None of them need the database yet; CI runs
-`pytest -m "not db"`.
+Test suite: 195 passing locally with the database running. CI runs
+`pytest -m "not db"` (173 tests); the 22 database tests are skipped when
+Postgres isn't reachable.
 
 ## Verified
 
@@ -130,6 +131,30 @@ What this means for the task set (step 3):
 - **Wall-clock times are small** (all under 250 ms) because the 1.0 GB database
   fits in memory. Grade on plans and estimated costs, not timings.
 
+**Connection layer (`db.py`).** `tests/test_db.py`, 23 tests, passing in 4
+consecutive runs (about 1.7 s each). What they show:
+- **Guardrail layers 2 to 4 hold on their own.**
+  - **Layer 2:** a multi-statement string is refused by Postgres.
+  - **Layer 3:** INSERT, UPDATE and CREATE TABLE are refused by the read-only
+    transaction.
+  - **Layer 4:** with read-write forced, the agent role still gets "permission
+    denied".
+- **Timeouts.** The configured `statement_timeout` is in effect, and a long
+  query is cancelled with a readable message.
+- **The pool.**
+  - **Reuse:** 5 calls use 1 connection, and no setting leaks between calls.
+  - **Errors** leave the pool usable.
+  - **Recovery:** after one connection is killed, or all of them (a restart),
+    the next call succeeds.
+  - **Database down:** the error says "not reachable ... `docker compose up -d`".
+- **The write path.**
+  - **It builds indexes,** including `CONCURRENTLY`.
+  - **It refuses** DROP, TRUNCATE, ALTER, SELECT and multi-statement strings,
+    and the table is untouched afterwards.
+  - **On a held lock** it gives up after `lock_timeout` and says nothing was built.
+  - **A failed concurrent build** has its INVALID index named in the error.
+  - **Recovery:** it recovers when its connection is killed.
+
 ## Open items
 
 - [ ] **Plain Docker build on the laptop.** `docker compose build` with no
@@ -142,14 +167,15 @@ What this means for the task set (step 3):
 - [ ] **pg_stat_statements is not reset after seeding**, so the seed's own
   statements show up in it. Decide whether `seed.py` or the eval fixtures
   should reset it.
-- [ ] **No database tests yet.** The `db` pytest marker exists, but no test
-  uses it, and CI never runs a database.
+- [ ] **Database tests don't run in CI.** They run locally and in cloud
+  sessions. Next PR: build the image in GitHub Actions and run `pytest` with
+  the database (DECISIONS D13).
 
 ## Next
 
-`server/db.py`: the read-only path and the write path, plus `@pytest.mark.db`
-tests for guardrail layers 2 to 4 (one statement per call, rollback, the
-read-only role, `statement_timeout`).
+Run the database tests in CI (D13), then `server/tools.py`: the six tools,
+starting with `describe_schema` and `run_read_query`. Design questions about
+tool output (what to return, how compact) go to the user first.
 
 ## History
 
@@ -163,3 +189,4 @@ read-only role, `statement_timeout`).
 | 2026-11-10 | #6 | `seed.py` implemented; PokeAPI snapshot committed |
 | 2026-11-10 | #7 | Progress and decision docs, CLAUDE.md |
 | 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
+| 2026-11-11 | this PR | `db.py`: pooled read and write paths, database tests |

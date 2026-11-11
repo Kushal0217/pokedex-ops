@@ -152,3 +152,87 @@ the cloud can use `--scale 1.0` too, and `0.1` remains an option for speed.
 - **PRs are merged only when asked,** and only after CI is green.
 - **Progress and decisions are recorded** in `docs/PROGRESS.md` and
   `docs/DECISIONS.md`, in the same PR as the work.
+
+## D11. Persistent, pooled connections (2026-11-11)
+
+**Decision.** `db.py` keeps connections open in two pools (`psycopg_pool`):
+- **reads:** up to 4 connections, so parallel tool calls don't wait for each other;
+- **writes:** 1 connection, so index builds run one at a time.
+
+The pools open on the first tool call.
+
+**Why.** Speed is the priority. Measured on localhost: a pooled call costs
+0.65 ms, against 7.6 ms for a new connection each time. Opening on first use
+keeps the MCP server starting even when the database is down; the tool then
+says "start it with `docker compose up -d`" instead of the server failing.
+
+**Considered.** A new connection per call: simpler and fully isolated, but
+about 12 times slower per call.
+
+**Handling.** These are the costs we chose to take on:
+- **Dead connections** (the server restarted) are found by the first
+  statement of a call, which is the call's own setup (`BEGIN READ ONLY`, or
+  setting the write timeouts), so there's no separate ping. Nothing of the
+  caller's has run at that point, so the call retries once on a fresh
+  connection, after dropping the pool's other dead idle connections. A
+  connection that dies mid-query is reported, not retried.
+- **The index build itself is never retried.** A cut-off build may or may not
+  have finished. Only the setup step before it is retried.
+- **No state leaks between calls.** Every read rolls back, which also undoes
+  any settings changed during it. A connection returned mid-transaction or in
+  an error state is closed instead of reused. Tested in `tests/test_db.py`.
+- **`prepare=True` can't be forgotten.** Tools get a `Cursor` wrapper that
+  adds it, never the raw psycopg cursor.
+
+**Also checked.** `SHOW`, `set_config` and `CREATE INDEX CONCURRENTLY` all
+work as prepared statements, and a multi-statement string is refused with
+"cannot insert multiple commands into a prepared statement".
+
+## D12. A narrow write path (2026-11-11)
+
+**Decision.** The scaffold's general `dba_autocommit()` cursor is replaced by
+`db.create_index(sql)`. It classifies the statement again with `sqlguard`,
+refuses anything that isn't a single CREATE INDEX, and only then runs it.
+
+**Why.** The write role owns every table and could DROP or TRUNCATE them. A
+general-purpose cursor on it would rely on every caller checking first. With
+this, the only write is checked in two places (`apply_index` and `db.py`).
+
+**Timeouts.** A write gets its own `statement_timeout` of 5 minutes, since
+builds on millions of rows take a while, and a `lock_timeout` of 5 seconds, so
+a build never queues behind other sessions' locks (which would also block
+everyone queued behind it).
+
+**Failures are reported precisely.** A failed `CREATE INDEX CONCURRENTLY` can
+leave an INVALID index behind. `create_index` names any it finds and says that
+dropping them needs a human, because the agent cannot drop anything. Otherwise
+it says nothing was built.
+
+## D13. Database tests run against the dev database (2026-11-11)
+
+**Decision.** Tests that need Postgres are marked `@pytest.mark.db` and run
+against the local database from `docker compose`. `tests/conftest.py` skips
+them, with a reason, when it isn't reachable. Write tests use a scratch table
+(`zz_pytest_scratch`) that they create and drop. CI still runs
+`pytest -m "not db"`.
+
+**Next.** Building the image in CI so these tests run on every PR. Planned as
+its own PR.
+
+**Small change alongside.** `ToolError` moved to `server/errors.py`, because
+`db.py` raises it and can't import `tools.py`, which imports `db.py`.
+`tools.ToolError` still works.
+
+## D14. Cloud sessions stop background processes between turns (2026-11-11)
+
+**Observed.** Between turns, while the session is idle, every process in the
+cloud container stops (Docker, containerd, Postgres), but files survive: a
+leftover `docker.pid` remained with no processes running. Postgres then runs
+crash recovery when restarted, which has always come back clean.
+
+**Consequence.**
+- **Restart Docker and the database at the start of any turn that needs
+  them.** The commands are in CLAUDE.md.
+- **Docker can take more than 3 seconds to start,** so wait for `docker info`
+  to succeed rather than sleeping for a fixed time.
+- **The pool's retry (D11) covers the same event** from the application's side.

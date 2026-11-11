@@ -13,9 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-
-class ToolError(Exception):
-    """Expected failure (bad SQL, guardrail block, timeout). Message goes to the agent."""
+from server.errors import ToolError  # noqa: F401  (re-exported: handlers raise it)
 
 
 def describe_schema(table: str | None = None) -> dict[str, Any]:
