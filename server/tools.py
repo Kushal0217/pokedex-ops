@@ -18,6 +18,8 @@ import time
 import uuid
 from typing import Any
 
+import psycopg
+
 from server import config, db, sqlguard
 from server.errors import ToolError
 
@@ -155,10 +157,54 @@ def run_read_query(sql: str) -> dict[str, Any]:
     }
 
 
-def explain_query(sql: str, analyze: bool = True) -> dict[str, Any]:
-    """EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) inside a rolled-back read-only transaction.
-    Returns total cost, execution time, and a compact plan summary (not the raw JSON)."""
-    raise NotImplementedError
+def _explain(body: str, options: str) -> str:
+    """Run one EXPLAIN and return Postgres's text plan, unchanged."""
+    # The newline keeps a trailing -- comment from swallowing anything after the query.
+    prefix = f"EXPLAIN {options}\n"
+    with db.read_only(position_offset=len(prefix)) as cur:
+        cur.execute(f"{prefix}{body}")
+        return "\n".join(row[0] for row in cur.fetchall())
+
+
+def explain_query(sql: str) -> dict[str, Any]:
+    """Return the raw text plan of EXPLAIN (ANALYZE, BUFFERS) for one read query.
+
+    ANALYZE really runs the query; that is safe because db.read_only() is a
+    read-only transaction that is always rolled back. If statement_timeout
+    cancels it, the plan comes from plain EXPLAIN (estimates only, nothing runs)
+    and a note says so. Output: {"plan", "analyzed"}, plus "note" on fallback.
+    """
+    keyword = sqlguard.leading_keyword(sql)
+    if keyword == "explain":
+        raise ToolError("explain_query adds EXPLAIN itself. Send the query without the EXPLAIN keyword.")
+    verdict = sqlguard.classify(sql)
+    if verdict.kind == "create_index":
+        raise ToolError("explain_query only explains read-only queries. Use apply_index to create an index.")
+    if verdict.kind != "read":
+        raise ToolError(verdict.reason)
+    if keyword == "show":
+        raise ToolError("EXPLAIN cannot explain a SHOW statement. Use run_read_query to run it.")
+
+    body = sqlguard.strip_terminator(sql)
+    started = time.monotonic()
+    try:
+        return {"plan": _explain(body, "(ANALYZE, BUFFERS)"), "analyzed": True}
+    except ToolError as err:
+        # Fall back only for our own statement_timeout. A cancel from another
+        # session (pg_cancel_backend) raises the same QueryCanceled, but always
+        # sooner than the timeout, and someone wanted that query stopped. The
+        # elapsed time tells them apart without matching (translated) message text.
+        timed_out = (isinstance(err.__cause__, psycopg.errors.QueryCanceled)
+                     and (time.monotonic() - started) * 1000 >= config.STATEMENT_TIMEOUT_MS)
+        if not timed_out:
+            raise
+    seconds = config.STATEMENT_TIMEOUT_MS / 1000
+    return {
+        "plan": _explain(body, ""),
+        "analyzed": False,
+        "note": (f"EXPLAIN ANALYZE was cancelled after {seconds:g} s (statement_timeout), so this plan "
+                 "has estimates only: no actual rows, times or buffers."),
+    }
 
 
 def propose_index(sql: str, index_sql: str | None = None) -> dict[str, Any]:

@@ -473,3 +473,52 @@ tools' own sessions from everyone else's, for example to leave itself out of
 **Tests.** Each was checked to fail without its change: the VACUUM test failed
 on a database seeded by the old code (`ops_audit_log: 0 of 1 pages
 all-visible`), and the label test failed without the `db.py` change.
+
+## D20. What `explain_query` returns (2026-11-11)
+
+**Decided by the user,** from options measured on the full-scale database
+(tokens are estimated as characters divided by 4, as in D16).
+
+- **E1. It always runs `EXPLAIN ANALYZE`,** and falls back to plain `EXPLAIN`
+  if the statement_timeout cancels it. Plain EXPLAIN took 4-5 ms on two test
+  queries; EXPLAIN ANALYZE took 457 and 852 ms, but only it shows actual rows
+  and times, which is how a bad row estimate becomes visible. There is no
+  `analyze` parameter. ANALYZE really executes the query; the read-only
+  transaction that is always rolled back is what makes that safe.
+- **E2. The plan is Postgres's raw text output, unchanged.** Measured on a
+  filter over 5M rows and on a join with grouping: raw JSON 540 / 1,844
+  tokens, raw text 139 / 642, compact JSON 110 / 411, compact text 46 / 181.
+  Known cost of this choice: Postgres prints per-loop numbers, so with 3
+  parallel workers `rows=3 loops=3` means 9 rows and `Rows Removed by
+  Filter: 1666664` means about 5M. If the v1 transcripts show the agent
+  misreading these, that is a v2 change.
+- **E3. BUFFERS is on.** It adds 40-50% to the plan (99 -> 138 tokens, 428 ->
+  642), and shows the pages read from memory and from disk: the clearest
+  measure of a query's work, and of what an index saves.
+- **E4. Facts only: no diagnosis notes in v1.** Notes (for example "this scan
+  removed 5M rows") are a v2 candidate, so the v1-to-v2 comparison can show
+  whether they help.
+
+**Output:** `{"plan": <text>, "analyzed": <bool>}`, plus `"note"` only when
+the fallback ran.
+
+**Details decided by the orchestrator:**
+- **Refusals:** SQL starting with `EXPLAIN` gets its own message (sqlguard's
+  reason, "use the explain_query tool", would be confusing here);
+  `CREATE INDEX` points to `apply_index`; `SHOW` points to `run_read_query`,
+  since Postgres can't explain it; anything else not a read gets sqlguard's
+  reason.
+- **The EXPLAIN prefix is on its own line,** so a trailing `-- comment` can't
+  break the statement, and error positions are corrected for it, as in D16.
+- **The fallback runs only for our own timeout.** A cancel from another
+  session (`pg_cancel_backend`) raises the same `QueryCanceled`, so the code
+  also requires that the time spent is at least the timeout. A real timeout
+  always meets that, and another session's cancel always comes sooner.
+  Message text was not used: Postgres translates it. Someone who cancels a
+  query wants it stopped, so it is reported, not re-run.
+
+**Built by the orchestrator setup (D18).** The implementer (Sonnet) wrote it
+from a contract; the reviewer (Sonnet) found the cancel bug by reproducing it
+(a cancel at 0.5 s gave the note "cancelled after 20 s"), and two tests that
+could not fail. All three were fixed, and the new cancel test was checked to
+fail without the fix. Costs are in `docs/orchestration-log.md`.

@@ -14,7 +14,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | # | step | status |
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
-| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 2 of the 6 tools done |
+| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 3 of the 6 tools done |
 | 3 | SKILL.md and the task set | not started |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
@@ -28,15 +28,15 @@ Steps from ARCHITECTURE.md, "Build order".
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
 | `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 24 cases (23 need the database) |
-| `server/tools.py` | `describe_schema` and `run_read_query` implemented; the other four are stubs | `tests/test_tools.py`, 41 cases (27 need the database) |
+| `server/tools.py` | `describe_schema`, `run_read_query` and `explain_query` implemented; the other three are stubs | `tests/test_tools.py`, 56 cases (42 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 263 passing locally with the database running. CI runs all of
+Test suite: 278 passing locally with the database running. CI runs all of
 them in two jobs: `test` (`pytest -m "not db"`, 208 tests) and `db-test` (the
-55 database tests against a freshly built image). Locally, the database tests
+70 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -208,6 +208,10 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 - [ ] **The heldout rule for subagents is an instruction only** (D18). Add a
   hook that blocks reads of `tasks/heldout/` if the orchestration log shows
   a breach.
+- [ ] **Every `QueryCanceled` is reported as a statement_timeout** by
+  `db._tool_error`, including a cancel from another session, and its advice
+  ("use EXPLAIN without ANALYZE") is wrong when explain_query's plain
+  fallback itself times out. Rare; found in the D20 review.
 - [ ] **GitHub Actions warns that Node 20 is deprecated** for
   `actions/checkout@v4` and `actions/setup-python@v5`, which are forced onto
   Node 24 for now. Nothing fails. Fix: move to newer major versions of both
@@ -215,12 +219,11 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-The remaining four tools in `server/tools.py`: `explain_query` (a compact
-plan summary), `propose_index` (hypopg), `check_health` and `apply_index`.
-Design questions about their output go to the user first. This is the
-first work for the Opus orchestrator and its Sonnet subagents (D18): record
-each delegation in `docs/orchestration-log.md`. The two done so far
-aren't in the skill's `reference/tools.md` yet; that's part of step 3.
+The remaining three tools in `server/tools.py`: `propose_index` (hypopg),
+`check_health` and `apply_index`. Design questions about their output go to
+the user first. Build them with the orchestrator setup (D18) and record each
+delegation in `docs/orchestration-log.md`. The three done so far aren't in
+the skill's `reference/tools.md` yet; that's part of step 3.
 
 ## History
 
@@ -240,3 +243,4 @@ aren't in the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #12 | Fix two seed bugs found in #4 (learnset game order; workload row order); snapshot re-fetched; #4 closed |
 | 2026-11-11 | #13 | Opus orchestrator with three Sonnet subagents; CLAUDE.md go-ahead rule amended (D18) |
 | 2026-11-11 | #14 | Seed: VACUUM after the workload, reset pg_stat_statements; tool connections labelled (D19) |
+| 2026-11-11 | #15 | `explain_query` (raw EXPLAIN ANALYZE text, BUFFERS, timeout fallback); first work built by the orchestrator setup (D20) |

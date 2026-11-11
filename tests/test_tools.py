@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import threading
+import time
 
 import psycopg
 import pytest
 
-from server import config, db, tools
+from server import config, db, sqlguard, tools
 from server.errors import ToolError
 
 
@@ -195,3 +197,116 @@ def test_run_read_query_error_positions_point_into_the_agents_sql():
     """The wrapper adds text in front; error positions must still match what the agent sent."""
     with pytest.raises(ToolError, match=r'column "nope" does not exist \(at character 8\)'):
         tools.run_read_query("SELECT nope FROM pokemon")
+
+
+# --------------------------------------------------------------------------- explain_query
+
+@pytest.mark.db
+def test_explain_query_returns_the_raw_analyzed_plan():
+    r = tools.explain_query("SELECT * FROM pokemon WHERE id = 25")
+    assert r["analyzed"] is True and "note" not in r
+    assert isinstance(r["plan"], str) and "\n" in r["plan"]
+    assert "actual time=" in r["plan"] and "Buffers:" in r["plan"] and "Execution Time:" in r["plan"]
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("sql", [
+    "SELECT 1 FROM pokemon;",
+    "SELECT 1 FROM pokemon -- trailing comment",
+    "SELECT 1 FROM pokemon; -- comment after the terminator",
+])
+def test_explain_query_handles_terminators_and_comments(sql):
+    r = tools.explain_query(sql)
+    assert r["analyzed"] is True and "actual time=" in r["plan"]
+
+
+def count_explain_runs(monkeypatch) -> list[str]:
+    """Record the options of each EXPLAIN that explain_query runs."""
+    runs: list[str] = []
+    real = tools._explain
+
+    def spy(body: str, options: str) -> str:
+        runs.append(options)
+        return real(body, options)
+
+    monkeypatch.setattr(tools, "_explain", spy)
+    return runs
+
+
+@pytest.mark.db
+def test_explain_query_falls_back_to_plain_explain_on_timeout(monkeypatch):
+    monkeypatch.setattr(config, "STATEMENT_TIMEOUT_MS", 200)
+    runs = count_explain_runs(monkeypatch)
+    r = tools.explain_query("SELECT count(*) FROM generate_series(1, 1000000000)")   # slow at any scale
+    assert runs == ["(ANALYZE, BUFFERS)", ""]
+    assert r["analyzed"] is False
+    assert "statement_timeout" in r["note"] and "0.2 s" in r["note"]
+    assert "Aggregate" in r["plan"]
+    assert "actual" not in r["plan"] and "Buffers" not in r["plan"]
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("sql", ["SELECT nope FROM pokemon", "SELECT 1/0"])
+def test_explain_query_does_not_fall_back_on_other_errors(monkeypatch, sql):
+    runs = count_explain_runs(monkeypatch)
+    with pytest.raises(ToolError):
+        tools.explain_query(sql)
+    assert runs == ["(ANALYZE, BUFFERS)"]
+
+
+@pytest.mark.db
+def test_explain_query_does_not_fall_back_when_another_session_cancels(monkeypatch):
+    """A cancel from another session is the same error as a timeout, but someone
+    wanted the query stopped: report it, don't run a second query (review finding)."""
+    runs = count_explain_runs(monkeypatch)
+    cancelled: list[bool] = []
+
+    def cancel_when_running() -> None:
+        with psycopg.connect(config.ADMIN_DSN, autocommit=True) as a:
+            for _ in range(50):
+                rows = a.execute(
+                    "SELECT pg_cancel_backend(pid) FROM pg_stat_activity "
+                    "WHERE query LIKE %s AND pid <> pg_backend_pid()", ("%pg_sleep(5)%",)).fetchall()
+                if any(ok for (ok,) in rows):
+                    cancelled.append(True)
+                    return
+                time.sleep(0.1)
+
+    canceller = threading.Thread(target=cancel_when_running)
+    canceller.start()
+    started = time.monotonic()
+    with pytest.raises(ToolError, match="cancel"):
+        tools.explain_query("SELECT pg_sleep(5)")
+    canceller.join()
+    assert cancelled and runs == ["(ANALYZE, BUFFERS)"]
+    assert time.monotonic() - started < 4   # stopped by the cancel, not by finishing
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("sql, message", [
+    ("EXPLAIN SELECT 1", "adds EXPLAIN itself"),
+    ("CREATE INDEX ON battles (winner_team_id)", "apply_index"),
+    ("DELETE FROM battles", "DELETE"),
+    ("SELECT 1; SELECT 2", "one statement"),
+    ("SHOW work_mem", "run_read_query"),
+])
+def test_explain_query_refuses_with_a_reason(sql, message):
+    with pytest.raises(ToolError, match=message):
+        tools.explain_query(sql)
+
+
+@pytest.mark.db
+def test_explain_query_error_positions_point_into_the_agents_sql():
+    with pytest.raises(ToolError, match=r'column "nope" does not exist \(at character 8\)'):
+        tools.explain_query("SELECT nope FROM pokemon")
+
+
+@pytest.mark.db
+def test_explain_analyze_cannot_write_even_if_sqlguard_lets_a_write_through(monkeypatch):
+    """EXPLAIN ANALYZE really executes its query. If sqlguard ever misclassified a
+    write as a read, the read-only transaction (layer 3) must still refuse it."""
+    monkeypatch.setattr(sqlguard, "classify", lambda sql: sqlguard.Verdict("read"))
+    before = exact_count("types")
+    with pytest.raises(ToolError, match="Refused"):
+        tools.explain_query("INSERT INTO types (id, name) VALUES (9999, 'zz_pytest')")
+    assert exact_count("types") == before
