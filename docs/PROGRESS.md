@@ -206,4 +206,4 @@ compact) go to the user first.
 | 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
 | 2026-11-11 | #9 | `db.py`: pooled read and write paths, database tests |
 | 2026-11-11 | #10 | Database tests run in CI against a freshly built image |
-| 2026-11-11 | this PR | Fix two seed bugs found in #4 (learnset game order; workload row order); snapshot re-fetched; #4 closed |
+| 2026-11-11 | #12 | Fix two seed bugs found in #4 (learnset game order; workload row order); snapshot re-fetched; #4 closed |
