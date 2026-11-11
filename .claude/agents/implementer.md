@@ -35,6 +35,11 @@ one contract. You implement exactly that contract and report back.
   after itself. Do not run `scripts/seed.py` unless the contract says so.
 - Never weaken, skip, or delete a test to make it pass. If a test cannot pass,
   report the failure.
+- **Prove each new test can fail.** For every test you add, break the
+  behaviour it checks for a moment (for example, remove the guard or change
+  the returned value), run that test, and see it fail. Then restore the code
+  and see it pass. A test that passes either way checks nothing. If you cannot
+  make a test fail, rewrite it or report why.
 - Keep to the existing style: type hints, `from __future__ import annotations`,
   short docstrings that say why, not what.
 
@@ -46,11 +51,15 @@ one contract. You implement exactly that contract and report back.
 - psql: `docker exec pokedex-ops-db psql -U postgres -d pokedex -c "..."`.
 
 ## Done means
-The acceptance command in the contract passes, and the full test suite still passes.
+The acceptance command in the contract passes, the full test suite still
+passes, every new test was seen to fail with its behaviour broken, and the
+code is restored exactly (check with `git diff`).
 
 ## Report (max 300 words, this format)
 - **Status:** done | blocked
 - **Changed files:** one line each, with a few words on the change
 - **Decisions:** each choice the contract left open, and why you chose it
 - **Tests:** the exact command and its summary line
+- **Failure check:** for each new test, what you broke and the failure you saw
+  (one line each)
 - **Risks / open questions:** anything the orchestrator must check
