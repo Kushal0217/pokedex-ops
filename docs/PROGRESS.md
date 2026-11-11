@@ -34,9 +34,10 @@ Steps from ARCHITECTURE.md, "Build order".
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 195 passing locally with the database running. CI runs
-`pytest -m "not db"` (173 tests); the 22 database tests are skipped when
-Postgres isn't reachable.
+Test suite: 195 passing locally with the database running. CI runs all of
+them in two jobs: `test` (`pytest -m "not db"`, 173 tests) and `db-test` (the
+22 database tests against a freshly built image). Locally, the database tests
+are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
 
@@ -155,27 +156,38 @@ consecutive runs (about 1.7 s each). What they show:
   - **A failed concurrent build** has its INVALID index named in the error.
   - **Recovery:** it recovers when its connection is killed.
 
+**CI runs the database tests** (PR #10, first run 2026-11-11). From the
+`db-test` job log:
+- **The plain build without a proxy** used plain apt (`APT_HTTPS` was `0`)
+  and installed `postgresql-17-hypopg 1.4.5`.
+- **Postgres** was healthy 2.5 s after starting.
+- **The seed at scale 0.1** gave the same row counts as in the cloud, in about 6 s.
+- **The tests:** `22 passed, 173 deselected`, with nothing skipped.
+- **The whole job** took about 40 s.
+
 ## Open items
 
-- [ ] **Plain Docker build on the laptop.** `docker compose build` with no
-  proxy has not been run since PR #5. In the cloud, the build steps it adds
-  work, and so does the empty placeholder mount it uses when no certificate is
-  supplied. Needs: run it once on the laptop and record the result here.
+- [x] **Plain Docker build without a proxy.** Runs on every CI run since
+  PR #10, and the first run built the image and passed. That was on GitHub's
+  Linux runner; it hasn't been run on the laptop itself (Docker Desktop on
+  Windows), but it's the same Dockerfile and BuildKit build.
 - [ ] **v1 tool descriptions** in `server/toolsets/v1.py` are `TODO`. They
   must be written before the baseline eval (step 4), as a plain first draft,
   not tuned.
 - [ ] **pg_stat_statements is not reset after seeding**, so the seed's own
   statements show up in it. Decide whether `seed.py` or the eval fixtures
   should reset it.
-- [ ] **Database tests don't run in CI.** They run locally and in cloud
-  sessions. Next PR: build the image in GitHub Actions and run `pytest` with
-  the database (DECISIONS D13).
+- [x] **Database tests run in CI** since PR #10 (DECISIONS D15).
+- [ ] **GitHub Actions warns that Node 20 is deprecated** for
+  `actions/checkout@v4` and `actions/setup-python@v5`, which are forced onto
+  Node 24 for now. Nothing fails. Fix: move to newer major versions of both
+  actions.
 
 ## Next
 
-Run the database tests in CI (D13), then `server/tools.py`: the six tools,
-starting with `describe_schema` and `run_read_query`. Design questions about
-tool output (what to return, how compact) go to the user first.
+`server/tools.py`: the six tools, starting with `describe_schema` and
+`run_read_query`. Design questions about tool output (what to return, how
+compact) go to the user first.
 
 ## History
 
@@ -190,3 +202,4 @@ tool output (what to return, how compact) go to the user first.
 | 2026-11-10 | #7 | Progress and decision docs, CLAUDE.md |
 | 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
 | 2026-11-11 | #9 | `db.py`: pooled read and write paths, database tests |
+| 2026-11-11 | #10 | Database tests run in CI against a freshly built image |
