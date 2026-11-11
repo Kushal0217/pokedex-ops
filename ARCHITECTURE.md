@@ -83,8 +83,10 @@ battles, encounters) hold millions of rows with skewed distributions and no
 secondary indexes, so the slow queries and missing indexes are real.
 
 **6. The data is reproducible.** PokeAPI is fetched once into a committed snapshot,
-and the workload is generated with `setseed()`. Every rebuild is identical, so
-eval ground truth never drifts.
+and the workload is generated with `setseed()`, with rows generated in a fixed
+order so the query plan can't change which row gets which random value. Every
+rebuild is identical, so eval ground truth never drifts (checked by a test;
+see docs/DECISIONS.md, D17).
 
 **7. The eval resists overfitting and is graded by code.** Tasks are split into dev
 and heldout. Every check is computed from database state or the transcript, with

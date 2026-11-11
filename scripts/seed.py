@@ -75,20 +75,28 @@ def generation_number(name: str) -> int:
     return ROMAN[name.split("-", 1)[1]]
 
 
-def pokemon_record(pokemon: dict[str, Any], species: dict[str, Any]) -> dict[str, Any]:
-    """Compact, deterministic record from a /pokemon and its /pokemon-species response."""
+def pokemon_record(pokemon: dict[str, Any], species: dict[str, Any],
+                   vg_order: dict[int, int]) -> dict[str, Any]:
+    """Compact, deterministic record from a /pokemon and its /pokemon-species response.
+
+    `vg_order` maps a version-group id to its release order (PokeAPI's `order`).
+    """
     stats = {STAT_COLUMNS[s["stat"]["name"]]: s["base_stat"] for s in pokemon["stats"]}
 
-    # A move is listed once per version group it appeared in. Keep one row per
-    # (move, learn method), from the newest version group, so the data is current.
+    # A move is listed once per version group (game) it appeared in. Keep one row
+    # per (move, learn method), from the most recently *released* version group,
+    # so the data is current. Rank by `order`, not id: ids follow when PokeAPI
+    # added a row, so red-green-japan (1996) has id 28, after scarlet-violet (25).
+    # Ranking by id took Bulbasaur's Vine Whip from Japanese Blue (level 13)
+    # instead of Scarlet/Violet (level 3). Found in PR #4; DECISIONS D17.
     learned: dict[tuple[int, str], tuple[int, int]] = {}
     for entry in pokemon["moves"]:
         move_id = url_id(entry["move"]["url"])
         for d in entry["version_group_details"]:
             key = (move_id, d["move_learn_method"]["name"])
-            vg = url_id(d["version_group"]["url"])
-            if key not in learned or vg > learned[key][0]:
-                learned[key] = (vg, d["level_learned_at"])
+            rank = vg_order[url_id(d["version_group"]["url"])]
+            if key not in learned or rank > learned[key][0]:
+                learned[key] = (rank, d["level_learned_at"])
 
     return {
         "id": pokemon["id"],
@@ -173,12 +181,15 @@ def fetch_snapshot(gens: range) -> None:
             for s in g["pokemon_species"]
         })
         log(f"fetch: {len(species_ids)} species in generations {gens.start}-{gens.stop - 1}")
+        vg_ids = sorted(url_id(v["url"]) for v in _get(client, "version-group?limit=1000")["results"])
+        vg_order = {g["id"]: g["order"] for g in get_many([f"version-group/{i}" for i in vg_ids])}
+        log(f"fetch: {len(vg_order)} version groups (games), ranked by release order")
         species = get_many([f"pokemon-species/{i}" for i in species_ids])
         default_ids = [
             url_id(next(v for v in s["varieties"] if v["is_default"])["pokemon"]["url"]) for s in species
         ]
         pokemon = get_many([f"pokemon/{i}" for i in default_ids])
-        records = [pokemon_record(p, s) for p, s in zip(pokemon, species)]
+        records = [pokemon_record(p, s, vg_order) for p, s in zip(pokemon, species)]
 
         move_ids = sorted({m[0] for r in records for m in r["moves"]})
         log(f"fetch: {len(move_ids)} moves")
