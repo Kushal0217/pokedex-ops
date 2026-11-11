@@ -37,8 +37,11 @@ python scripts/seed.py           # about 31 s and 1.0 GB at full scale; add --sc
 
 ## Tests
 
-`pytest` runs everything. CI runs `pytest -m "not db"`. Mark tests that need
-Postgres with `@pytest.mark.db`.
+`pytest` runs everything; tests marked `@pytest.mark.db` need Postgres and
+are skipped when it isn't running. CI has two jobs: `test` runs
+`pytest -m "not db"`, and `db-test` builds the image, seeds at scale 0.1 and
+runs `pytest -m db` with `POKEDEX_REQUIRE_DB=1`, so a missing database fails
+the run instead of skipping (DECISIONS D15).
 
 ## Don't
 

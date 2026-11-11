@@ -2,6 +2,7 @@ name: ci
 on: [push, pull_request]
 
 jobs:
+  # Fast: no database.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -11,3 +12,27 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: pytest -m "not db"
+
+  # The database tests (guardrail layers 2-4, pools, write path) against the real
+  # image, built fresh every run with the plain laptop build (docs/DECISIONS.md, D15).
+  db-test:
+    runs-on: ubuntu-latest
+    env:
+      POKEDEX_REQUIRE_DB: "1"   # fail, don't skip, if the database isn't up
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the database image
+        run: docker compose build
+      - name: Start Postgres 17 + hypopg
+        run: docker compose up -d --wait
+      - run: pip install -e ".[dev]"
+      - name: Seed (scale 0.1)
+        run: python scripts/seed.py --scale 0.1
+      - name: Database tests
+        run: pytest -m db -rs
+      - name: Database logs
+        if: failure()
+        run: docker compose logs db
