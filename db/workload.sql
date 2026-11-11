@@ -25,16 +25,25 @@ FROM generate_series(1, (500000 * :scale)::bigint) g;
 -- so selectivity differs a lot by pokemon_id (realistic, and it matters to the planner).
 -- (An uncorrelated subquery with random() would be evaluated once, so the
 -- popular pool is materialised as an array and indexed per row instead.)
+--
+-- setseed() fixes the sequence of random() values, not which row gets which.
+-- Rows are produced by a sorted subquery (Postgres never flattens one with
+-- ORDER BY), so random() always runs in (team, slot) order. Without it the
+-- join order decided the row order, and that depends on table statistics and
+-- planner settings: a fresh build and a rebuild at full scale produced
+-- different team_members (and, through the shared random() sequence, battles
+-- and encounters). Fix from PR #4; see docs/DECISIONS.md, D17.
 INSERT INTO team_members (team_id, slot, pokemon_id, level, nickname)
 SELECT t.id,
-       s.slot,
+       t.slot,
        CASE WHEN random() < 0.5
             THEN p.pool[1 + floor(random() * array_length(p.pool, 1))::int]
             ELSE 1 + floor(random() * p.max_id)::int END,
        CASE WHEN t.format = 'little-cup' THEN 5 ELSE 50 + floor(random() * 51)::int END,
        CASE WHEN random() < 0.2 THEN 'nick' || floor(random() * 10000)::int END
-FROM teams t
-CROSS JOIN generate_series(1, 6) AS s(slot)
+FROM (SELECT teams.id, teams.format, s.slot
+      FROM teams CROSS JOIN generate_series(1, 6) AS s(slot)
+      ORDER BY teams.id, s.slot) t
 CROSS JOIN (
     SELECT (SELECT array_agg(id) FROM (SELECT id FROM pokemon
                                        ORDER BY (attack + sp_attack + speed) DESC, id

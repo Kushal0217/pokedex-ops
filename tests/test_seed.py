@@ -71,9 +71,13 @@ POKEMON = {
 }
 SPECIES = {"generation": _ref("generation", "generation-i", 1), "is_legendary": False, "is_mythical": False}
 
+# version-group id -> release order. Here release order matches id, except 28,
+# which (like PokeAPI's red-green-japan) has a high id but is the oldest game.
+VG_ORDER = {1: 3, 10: 10, 20: 20, 25: 27, 28: 1}
+
 
 def test_pokemon_record_core_fields():
-    r = seed.pokemon_record(POKEMON, SPECIES)
+    r = seed.pokemon_record(POKEMON, SPECIES, VG_ORDER)
     assert (r["id"], r["name"], r["generation"]) == (25, "pikachu", 1)
     assert (r["height_dm"], r["weight_hg"], r["base_experience"]) == (4, 60, 112)
     assert (r["hp"], r["attack"], r["defense"], r["sp_attack"], r["sp_defense"], r["speed"]) == \
@@ -82,16 +86,33 @@ def test_pokemon_record_core_fields():
 
 
 def test_pokemon_record_types_and_abilities_are_sorted_by_slot():
-    r = seed.pokemon_record(POKEMON, SPECIES)
+    r = seed.pokemon_record(POKEMON, SPECIES, VG_ORDER)
     assert r["types"] == [[1, 13]]
     assert r["abilities"] == [[1, 9, False], [3, 31, True]]
 
 
 def test_pokemon_record_keeps_newest_version_group_per_move_and_method():
-    r = seed.pokemon_record(POKEMON, SPECIES)
+    r = seed.pokemon_record(POKEMON, SPECIES, VG_ORDER)
     # thunder-shock: three level-up entries, newest version group (20) wins with level 5.
     # thunderbolt: learned two ways, so one row per method.
     assert r["moves"] == [[84, "level-up", 5], [85, "level-up", 26], [85, "machine", 0]]
+
+
+def test_pokemon_record_ranks_games_by_release_order_not_id():
+    """Regression: a high version-group id is not a recent game (red-green-japan is id 28)."""
+    pokemon = {**POKEMON, "moves": [
+        {"move": _ref("move", "vine-whip", 22),
+         "version_group_details": [_detail("level-up", 3, 25),     # scarlet-violet: newest by order
+                                   _detail("level-up", 13, 28)]},  # red-green-japan: highest id, oldest
+    ]}
+    assert seed.pokemon_record(pokemon, SPECIES, VG_ORDER)["moves"] == [[22, "level-up", 3]]
+
+
+def test_pokemon_record_fails_loudly_on_an_unknown_game():
+    pokemon = {**POKEMON, "moves": [{"move": _ref("move", "tackle", 33),
+                                     "version_group_details": [_detail("level-up", 1, 99)]}]}
+    with pytest.raises(KeyError):
+        seed.pokemon_record(pokemon, SPECIES, VG_ORDER)
 
 
 def test_move_record_handles_missing_values():
@@ -166,3 +187,38 @@ def test_snapshot_has_values_the_schema_requires(snap):
         assert 1 <= len(p["types"]) <= 2
     pikachu = next(p for p in snap["pokemon"] if p["name"] == "pikachu")
     assert pikachu["id"] == 25 and pikachu["generation"] == 1
+
+
+# ---------------------------------------------------------------- workload reproducibility (database)
+
+def _workload_fingerprint(settings: list[str]) -> str:
+    """Generate a tiny workload inside a transaction that is always rolled back,
+    under the given planner settings, and fingerprint team_members."""
+    import psycopg
+
+    from server import config
+
+    sql = seed.substitute_scale(seed.WORKLOAD_SQL.read_text(encoding="utf-8"), 0.01)
+    with psycopg.connect(config.DBA_DSN) as conn:
+        try:
+            for s in settings:
+                conn.execute(s)
+            conn.execute(f"TRUNCATE {', '.join(seed.WORKLOAD_TABLES)} RESTART IDENTITY")
+            conn.execute(sql)
+            return conn.execute(
+                "SELECT md5(string_agg(md5(m::text), '' ORDER BY team_id, slot)) FROM team_members m"
+            ).fetchone()[0]
+        finally:
+            conn.rollback()   # the real workload tables are untouched
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("settings", [
+    ["SET LOCAL enable_material = off"],
+    ["SET LOCAL enable_nestloop = off"],
+    ["SET LOCAL join_collapse_limit = 1", "SET LOCAL enable_hashjoin = off"],
+])
+def test_workload_rows_do_not_depend_on_the_query_plan(settings):
+    """Regression (D17): row order used to follow the join plan, so a fresh build and a
+    rebuild at full scale differed. `enable_material = off` reproduced it at this size."""
+    assert _workload_fingerprint(settings) == _workload_fingerprint([])

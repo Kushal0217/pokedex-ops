@@ -109,9 +109,10 @@ so two separate fetches could differ and make results incomparable.
 - **Pokémon:** the default form of each species in generations 1 to 9, 1,025
   in all. Alternate forms are excluded, since the tables are keyed by Pokémon id.
 - **Moves:** only those at least one of those Pokémon learns, 797 of PokeAPI's 937.
-- **One row per (Pokémon, move, learn method),** taken from the newest version
-  group. PokeAPI lists a move once per game version, and the schema's primary
-  key allows one row.
+- **One row per (Pokémon, move, learn method),** taken from the most recently
+  *released* version group, ranked by PokeAPI's `order`. PokeAPI lists a move
+  once per game version, and the schema's primary key allows one row. (Until
+  2026-11-11 this ranked by id, which was wrong; see D17.)
 - **Byte-reproducible output:** sorted keys, no whitespace, gzip mtime 0. A
   re-fetch that changes nothing produces an identical file.
 
@@ -265,3 +266,60 @@ pytest with exit code 1. Locally, without the variable, they're still skipped.
 - **The guard:** with `POKEDEX_REQUIRE_DB=1` and no database, pytest exits 1.
 - **Not reproducible here:** the plain build without a proxy. CI is the test
   for it.
+
+## D17. Two seed bugs, found in PR #4 and fixed (2026-11-11)
+
+PR #4 was an earlier, parallel implementation of `db.py` and `seed.py`,
+opened from another session and never merged. Its description reported two
+bugs, and both turned out to be in the code merged in #6. #4 was closed after
+its two fixes were ported here.
+
+**Bug 1: learnsets came from the wrong game.**
+- **What went wrong.** For each (Pokémon, move, learn method), `seed.py` kept
+  the version group with the highest id, as "newest". But PokeAPI ids follow
+  when a row was added: `red-green-japan` (release order 1) has id 28 and
+  `blue-japan` (order 2) has id 29, above `scarlet-violet` (25). So Generation
+  1 Pokémon got levels from the 1996 Japanese games. Bulbasaur's Vine Whip was
+  stored at level 13 instead of 3.
+- **Fix.** The fetch stage loads all 32 version groups and ranks by their
+  release `order`. An unknown version group raises instead of guessing.
+- **Data update.** The snapshot was re-fetched, approved by the user as a
+  deliberate update under D7.
+  - **Changed:** only learnset levels, in 690 level-up rows across 141
+    Pokémon (0.6% of 115,026 rows).
+  - **Unchanged:** types, abilities, moves, the Pokémon list and every stat.
+  - **Reproducible:** a second fetch gives the same bytes.
+- **Tests.** Regression: a high-id old game loses to a newer one. Also, an
+  unknown game fails loudly.
+
+**Bug 2: the workload wasn't reproducible at full scale.**
+- **What went wrong.** `setseed()` fixes the *sequence* of `random()` values,
+  but which row receives which value followed the join order of
+  `teams × generate_series × pool`. That order depends on table statistics
+  and planner settings. At scale 1.0 a fresh build and a rebuild produced
+  different `team_members`, and, because the `random()` sequence continues
+  into the next statements, different `battles` as well.
+- **Why our checks missed it.** The earlier check compared rebuild with
+  rebuild, at scale 0.1, where the plan happened not to change.
+- **Fix** (from #4). `team_members` rows come from a subquery sorted by
+  (team, slot). Postgres doesn't flatten a subquery with ORDER BY, so
+  `random()` always runs in that order.
+- **Verified.**
+  - **Full scale:** after the fix, a fresh build and a rebuild give identical
+    md5s for `team_members`, `battles`, `encounters` and `pokemon_moves`.
+  - **The fresh-build md5s for `team_members` and `battles`** equal the ones
+    taken before the fix. So the earlier fresh-build data (on which PR #8's
+    query timings were measured) is unchanged.
+- **Test.** `tests/test_seed.py::test_workload_rows_do_not_depend_on_the_query_plan`
+  generates a tiny workload inside a rolled-back transaction, with default
+  planner settings and three non-default ones, and compares. Without the fix,
+  the `enable_material = off` case fails, so this test catches the bug at
+  CI's small scale.
+
+**Not ported from #4.** Its alternative `db.py` (ours carries D11 and D12),
+a `VACUUM ANALYZE` after seeding, and resetting `pg_stat_statements` (still
+an open item).
+
+**Also in this change.** The Docker start-up command in CLAUDE.md now gives
+up after 60 s. Once this session, Docker exited during start-up, and the old
+loop waited for it forever.

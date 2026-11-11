@@ -66,9 +66,12 @@ PostgreSQL 17.11, `hypopg` and `pg_stat_statements` installed, and
 | 0.1 | 1.07M workload rows | 6 s | not measured |
 | 1.0 | 10.7M workload rows (200k trainers, 500k teams, 3M team members, 2M battles, 5M encounters) | 31 s | 1.0 GB (encounters 492 MB, team_members 246 MB, battles 207 MB) |
 
-- **Reproducible.** Fetching the snapshot twice gave byte-identical files, and
-  regenerating the workload gave identical rows (md5 of the `battles` table
-  matched).
+- **Reproducible.** Fetching the snapshot twice gives byte-identical files.
+  The workload claim originally recorded here ("identical rows") came from
+  comparing rebuild with rebuild at small scale, and was wrong: a fresh build
+  and a rebuild differed at full scale. Fixed in D17. Since then a fresh build
+  and a rebuild at scale 1.0 give identical md5s for `team_members`,
+  `battles`, `encounters` and `pokemon_moves`.
 - **Ownership and indexes.** Every table is owned by `pokedex_dba`, and the
   workload tables have no indexes beyond their primary keys.
 - **Agent role.** `pokedex_agent` can SELECT. An INSERT fails with "cannot
@@ -203,3 +206,4 @@ compact) go to the user first.
 | 2026-11-10 | #8 | Population check and query timings at scale 1.0 recorded |
 | 2026-11-11 | #9 | `db.py`: pooled read and write paths, database tests |
 | 2026-11-11 | #10 | Database tests run in CI against a freshly built image |
+| 2026-11-11 | #12 | Fix two seed bugs found in #4 (learnset game order; workload row order); snapshot re-fetched; #4 closed |
