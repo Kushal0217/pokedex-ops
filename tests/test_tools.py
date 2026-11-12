@@ -7,6 +7,7 @@ against live counts rather than fixed numbers.
 from __future__ import annotations
 
 import datetime
+import json
 import decimal
 import threading
 import time
@@ -416,3 +417,167 @@ def test_apply_index_says_so_when_another_session_added_an_index_too(scratch, mo
     monkeypatch.setattr(tools, "_index_names", lambda t: next(calls)(t))
     with pytest.raises(ToolError, match="zz_someone_elses"):
         tools.apply_index(f"CREATE INDEX zz_pytest_mine ON {scratch} (v)")
+
+
+# --------------------------------------------------------------------------- check_health
+
+SECTIONS = ["connections", "long_running", "blocking", "cache_hit_pct", "tables", "invalid_indexes",
+            "unused_indexes", "stats_since", "top_queries", "replication"]
+
+
+@pytest.mark.db
+def test_check_health_has_every_section():
+    # No size limit here: the lists depend on what else runs on the database, so a limit
+    # would be flaky. The measured size is recorded in DECISIONS D23.
+    r = tools.check_health()
+    assert list(r) == SECTIONS
+    assert not any(isinstance(v, dict) and "error" in v for v in r.values())
+    json.dumps(r)
+
+
+@pytest.mark.db
+def test_check_health_keeps_table_data_while_a_table_is_locked(scratch):
+    """An ACCESS EXCLUSIVE lock is one of the problems the report must show, so it must not
+    wipe out the tables section or make the report wait."""
+    with psycopg.connect(config.DBA_DSN) as holder:          # holds the lock until rollback
+        holder.execute(f"LOCK TABLE {scratch} IN ACCESS EXCLUSIVE MODE")
+        started = time.monotonic()
+        r = tools.check_health()
+        elapsed = time.monotonic() - started
+        holder.rollback()
+    assert isinstance(r["tables"], list), r["tables"]
+    assert scratch in {t["name"] for t in r["tables"]}
+    assert elapsed < 3
+
+
+def test_check_health_stops_at_once_when_the_database_is_down(monkeypatch):
+    """No database needed: one 'not reachable' error, not ten pool timeouts in a row."""
+    monkeypatch.setattr(config, "AGENT_DSN", "postgresql://pokedex_agent:agent@localhost:1/pokedex")
+    monkeypatch.setattr(config, "POOL_TIMEOUT_S", 0.5)
+    started = time.monotonic()
+    with pytest.raises(ToolError, match="not reachable"):
+        tools.check_health()
+    assert time.monotonic() - started < 2
+
+
+@pytest.mark.db
+def test_check_health_top_queries_leave_out_the_tools_own_queries():
+    """pg_stat_statements keys entries by user, so the same query from the agent role and from
+    another user are two entries. Only the other user's may be listed."""
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as admin:
+        admin.execute("SELECT pg_stat_statements_reset()")
+        with db.read_only() as cur:                          # as pokedex_agent, the slower one
+            cur.execute("SELECT pg_sleep(0.3)")
+        admin.execute("SELECT pg_sleep(0.2)")
+    listed = [q for q in tools.check_health()["top_queries"] if q["query"] == "SELECT pg_sleep($1)"]
+    assert len(listed) == 1, listed
+    assert 150 <= listed[0]["total_ms"] < 290
+
+
+@pytest.mark.db
+def test_check_health_says_no_replica_configured():
+    assert tools.check_health()["replication"] == "no replica configured"
+
+
+def sleeper(app: str, seconds: int, started: threading.Event, errors: list[BaseException]):
+    """Run pg_sleep on its own connection under `app`; returns (thread, backend pid)."""
+    conn = psycopg.connect(config.ADMIN_DSN, autocommit=True, application_name=app)
+    pid = conn.info.backend_pid
+
+    def run() -> None:
+        try:
+            started.set()
+            conn.execute(f"SELECT pg_sleep({seconds})")
+        except BaseException as e:  # noqa: BLE001 - reported by the test
+            errors.append(e)
+        finally:
+            conn.close()
+
+    return threading.Thread(target=run), pid
+
+
+@pytest.mark.db
+def test_check_health_long_running_shows_others_but_not_its_own_sessions(monkeypatch):
+    monkeypatch.setattr(tools, "LONG_RUNNING_S", 1)
+    errors: list[BaseException] = []
+    started = threading.Event()
+    other, other_pid = sleeper("zz_pytest", 4, started, errors)
+    ours, ours_pid = sleeper("pokedex-ops:read", 4, started, errors)
+    other.start()
+    ours.start()
+    try:
+        started.wait()
+        time.sleep(1.5)
+        r = tools.check_health()
+    finally:
+        other.join()
+        ours.join()
+    assert not errors
+    pids = {q["pid"]: q for q in r["long_running"]}
+    assert other_pid in pids and ours_pid not in pids
+    assert "pg_sleep" in pids[other_pid]["query"] and pids[other_pid]["seconds"] >= 1
+
+
+@pytest.mark.db
+def test_check_health_blocking_names_the_blocker(scratch):
+    holder = psycopg.connect(config.ADMIN_DSN, application_name="zz_pytest_holder")
+    waiter = psycopg.connect(config.ADMIN_DSN, autocommit=True, application_name="zz_pytest_waiter")
+    errors: list[BaseException] = []
+
+    def wait_for_lock() -> None:
+        try:
+            waiter.execute("SET lock_timeout = '10s'")
+            waiter.execute(f"SELECT count(*) FROM {scratch}")
+        except BaseException as e:  # noqa: BLE001 - reported by the test
+            errors.append(e)
+
+    thread = threading.Thread(target=wait_for_lock)
+    try:
+        holder.execute(f"LOCK TABLE {scratch} IN ACCESS EXCLUSIVE MODE")
+        holder_pid, waiter_pid = holder.info.backend_pid, waiter.info.backend_pid
+        thread.start()
+        rows: list = []
+        slowest = 0.0
+        for _ in range(50):
+            t0 = time.monotonic()
+            rows = tools.check_health()["blocking"]
+            slowest = max(slowest, time.monotonic() - t0)
+            if rows:
+                break
+            time.sleep(0.1)
+    finally:
+        holder.rollback()   # releases the lock, so the waiter finishes
+        thread.join()
+        holder.close()
+        waiter.close()
+    assert not errors
+    assert [(b["pid"], b["blocked_by"]) for b in rows] == [(waiter_pid, [holder_pid])]
+    assert scratch in rows[0]["query"]
+    assert slowest < 8   # table sizes need locks; the report must not wait out statement_timeout
+
+
+@pytest.mark.db
+def test_check_health_lists_invalid_and_unused_indexes(scratch):
+    with psycopg.connect(config.DBA_DSN, autocommit=True) as c:
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            c.execute(f"CREATE UNIQUE INDEX CONCURRENTLY zz_pytest_dup ON {scratch} (v)")
+        c.execute(f"CREATE INDEX zz_pytest_unused ON {scratch} (v)")
+    r = tools.check_health()
+    assert {"name": "zz_pytest_dup", "table": scratch} in r["invalid_indexes"]
+    assert [i["name"] for i in r["unused_indexes"] if i["table"] == scratch] == ["zz_pytest_unused"]
+
+
+@pytest.mark.db
+def test_check_health_tables_use_reltuples():
+    with psycopg.connect(config.ADMIN_DSN) as c:
+        expected = c.execute("SELECT reltuples::bigint FROM pg_class WHERE relname = 'encounters'").fetchone()[0]
+    tables = {t["name"]: t for t in tools.check_health()["tables"]}
+    assert tables["encounters"]["rows_estimate"] == expected
+
+
+@pytest.mark.db
+def test_check_health_one_failing_section_does_not_hide_the_others(monkeypatch):
+    monkeypatch.setattr(tools, "_CACHE_SQL", "SELECT nope FROM pg_stat_database")
+    r = tools.check_health()
+    assert "nope" in r["cache_hit_pct"]["error"]
+    assert r["replication"] == "no replica configured" and isinstance(r["tables"], list)

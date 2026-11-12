@@ -577,3 +577,54 @@ including the name of any INVALID index a failed concurrent build left.
 tests failing with the behaviour broken (D21); the reviewer reproduced two
 bugs and named one race. The orchestrator fixed all three and showed each new
 test failing without its fix.
+
+## D23. What `check_health` reports (2026-11-11)
+
+**Decided by the user (H1, "All sections"):** nine sections in one call, so
+an agent told only "the database is slow" can find where to look:
+`connections` (per state), `long_running` (active over 5 s), `blocking`
+(waiter, blocker pids, wait time), `cache_hit_pct`, `tables`,
+`invalid_indexes`, `unused_indexes` (with `stats_since`, because "unused"
+only means unused since the statistics began), `top_queries` (top 5 by total
+time from pg_stat_statements) and `replication` ("no replica configured",
+never invented).
+
+**Size: about 820 tokens, not the 346 measured for the decision.** The
+probe for H1 returned plain rows; the tool returns named fields for each of
+the 13 tables, and `tables` is three quarters of the report. Timestamps were
+cut to whole seconds (3,562 -> 3,269 characters). A more compact layout is a
+v2 candidate, decided from the transcripts. The report takes about 90 ms.
+
+**Details decided by the orchestrator:**
+- **The tools never report themselves.** Sessions named `pokedex-ops:read`
+  or `pokedex-ops:write` (D19) are left out of `connections`,
+  `long_running` and `blocking`; queries run by the tool roles
+  `pokedex_agent` and `pokedex_dba` are left out of `top_queries`.
+  pg_stat_statements keeps one entry per user, so this is exact.
+- **Row counts come from `pg_class.reltuples`,** not `n_live_tup`, which
+  reads 0 after a restart.
+- **Each section runs on its own,** and a failing one becomes
+  `{"error": ...}` without hiding the others. One exception: if the database
+  is unreachable, the whole report stops with that error. Found in review:
+  otherwise each of the 10 queries waited out the 5 s pool timeout (50 s).
+- **Sizes come from `pg_class.relpages`, not `pg_total_relation_size()`.**
+  Found in review: that function locks each table, so one table under an
+  ACCESS EXCLUSIVE lock, which is one of the problems the report must show,
+  cancelled the whole `tables` section. `relpages` needs no lock; it is
+  updated by VACUUM, ANALYZE and CREATE INDEX, so it is an estimate (491 MB
+  against 492 MB for `encounters`). Each section also has a 1 s
+  `lock_timeout` as a backstop; the implementer added it after the report
+  waited 20 s behind a held lock.
+- **Primary keys and unique indexes are never "unused":** they enforce
+  constraints even when no query reads them.
+
+**Known limits, for v2 to judge from the transcripts:**
+- **The lists have no cap.** A real incident with many blocked sessions would
+  make a long report.
+- **The tools' own write session is left out of `blocking`.** An
+  `apply_index` build waiting behind an open transaction does not show; the
+  blocker shows only as "idle in transaction" in `connections`.
+
+**Built by the orchestrator setup (D18).** The reviewer reproduced both
+failures above and found that nothing tested the `top_queries` filter. The
+orchestrator fixed all three and showed each new test failing without its fix.
