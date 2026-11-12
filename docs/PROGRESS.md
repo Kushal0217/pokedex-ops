@@ -14,7 +14,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | # | step | status |
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
-| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 3 of the 6 tools done |
+| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 4 of the 6 tools done |
 | 3 | SKILL.md and the task set | not started |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
@@ -24,19 +24,20 @@ Steps from ARCHITECTURE.md, "Build order".
 
 | module | status | tests |
 |--------|--------|-------|
-| `server/sqlguard.py` | implemented, plus `strip_terminator` and `leading_keyword` helpers | `tests/test_sqlguard.py`, 156 cases |
+| `server/sqlguard.py` | implemented, plus `strip_terminator`, `leading_keyword` and `add_concurrently` helpers | `tests/test_sqlguard.py`, 171 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
 | `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 24 cases (23 need the database) |
-| `server/tools.py` | `describe_schema`, `run_read_query` and `explain_query` implemented; the other three are stubs | `tests/test_tools.py`, 56 cases (42 need the database) |
+| `server/tools.py` | `describe_schema`, `run_read_query`, `explain_query` and `apply_index` implemented; `propose_index` and `check_health` are stubs | `tests/test_tools.py`, 65 cases (51 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 278 passing locally with the database running. CI runs all of
-them in two jobs: `test` (`pytest -m "not db"`, 208 tests) and `db-test` (the
-70 database tests against a freshly built image). Locally, the database tests
+Test suite: 302 tests; locally 301 pass with the database running, and one
+fails for a known reason (see Open items). CI runs all of them in two jobs:
+`test` (`pytest -m "not db"`, 223 tests) and `db-test` (the 79 database tests
+against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -193,6 +194,32 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 - **Exit:** a script using the tools now exits in 0.75 s (it was about 20 s
   before the pools were closed at exit).
 
+**`apply_index`** (2026-11-11), 14 database tests on a scratch table plus 15
+`add_concurrently` and `strip_terminator` cases (DECISIONS D22):
+- **CONCURRENTLY is added** when missing (a spy on `db.create_index` sees
+  it), and left alone when present, also with UNIQUE, IF NOT EXISTS, comments,
+  mixed case, quoted names and a leading or trailing `;`.
+- **The generated name is found** (`zz_pytest_apply_v_idx`), and `public.`
+  qualified tables work.
+- **Refused before the database is touched:** a read query (points to
+  `run_read_query`), DROP, and a table that does not exist.
+- **Failures:** UNIQUE on duplicate values gives a ToolError that names the
+  INVALID index; IF NOT EXISTS on an existing name gives `created: false`;
+  another session's index during the build gives an error, not a wrong name.
+
+**`claude -p` as an eval runner: first probe** (2026-11-11, Claude Code
+2.1.322, Haiku, two one-question sessions, $0.003 at list price):
+- **The output can be graded.** `--output-format stream-json --verbose`
+  gives every tool call (name and input) and its full result, matched by ID,
+  and the token use of each turn.
+- **The eval must run from an empty folder.** From the project folder the
+  first turn had about 6,900 tokens of context; from an empty folder, about
+  4,800. The difference is this project's files (mainly `CLAUDE.md`, which
+  talks about the held-out tasks). The agent under test must not see them.
+- **All tools must be allowed in advance** (`--allowedTools
+  mcp__pokedex-ops`). A tool that is not allowed fails, because nobody can
+  approve it.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -212,6 +239,21 @@ full-scale database, 41 tests in `tests/test_tools.py`:
   `db._tool_error`, including a cancel from another session, and its advice
   ("use EXPLAIN without ANALYZE") is wrong when explain_query's plain
   fallback itself times out. Rare; found in the D20 review.
+- [ ] **`test_reset_query_stats_empties_pg_stat_statements` fails on a
+  long-used local database.** pg_stat_statements groups queries by shape and
+  ignores column aliases, so if `SELECT count(*) FROM types` ran earlier, the
+  test's marker alias is never stored. CI seeds a fresh database and passes.
+  Proposed fix: find the query by `pg_stat_activity.query_id`.
+- [ ] **A rolled-back write still changes the physical state.** A task
+  setup check inserted one row into `teams` and rolled it back; the dead row
+  left one page not all-visible, which plain VACUUM did not fix ("index scan
+  bypassed" for a single dead item). `VACUUM (INDEX_CLEANUP ON) teams` did.
+  The eval runner's reset after each trial must do the same (step 4).
+- [ ] **The agent cannot ask questions in a headless eval run.** Idea from
+  the user: a file of expected questions and answers (`answers.json`, or an
+  `answers:` list per task) that the runner sends back with `--resume`. Open
+  points: on guardrail tasks asking is the right behaviour, and matching a
+  free-text question needs a rule, not an LLM judge. Decide in step 4.
 - [ ] **GitHub Actions warns that Node 20 is deprecated** for
   `actions/checkout@v4` and `actions/setup-python@v5`, which are forced onto
   Node 24 for now. Nothing fails. Fix: move to newer major versions of both
@@ -219,9 +261,9 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-The remaining three tools in `server/tools.py`: `propose_index` (hypopg),
-`check_health` and `apply_index`. Design questions about their output go to
-the user first. Build them with the orchestrator setup (D18) and record each
+The remaining two tools in `server/tools.py`: `check_health` (H1, all nine
+sections) and `propose_index` (P1, P2; it must reset hypopg's hypothetical
+indexes, which leak across pooled connections). Build them with the orchestrator setup (D18) and record each
 delegation in `docs/orchestration-log.md`. The three done so far aren't in
 the skill's `reference/tools.md` yet; that's part of step 3.
 
@@ -245,3 +287,4 @@ the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #14 | Seed: VACUUM after the workload, reset pg_stat_statements; tool connections labelled (D19) |
 | 2026-11-11 | #15 | `explain_query` (raw EXPLAIN ANALYZE text, BUFFERS, timeout fallback); first work built by the orchestrator setup (D20) |
 | 2026-11-11 | #16 | Implementer subagent must show each new test failing with its behaviour broken (D21) |
+| 2026-11-11 | #17 | `apply_index`: always CONCURRENTLY, new index found by name diff (D22); `claude -p` probe recorded |

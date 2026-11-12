@@ -538,3 +538,42 @@ better spent on bugs. The orchestrator already did this check by hand.
 **Risk and control.** The check edits code for a moment, so a worker could
 leave it broken. "Done" therefore also requires `git diff` to show the code
 restored exactly, and the orchestrator still runs the tests itself (D18).
+
+## D22. `apply_index` always builds CONCURRENTLY (2026-11-11)
+
+**Decided by the user (A1, "Always, add it").** A plain `CREATE INDEX` blocks
+every write to the table until the build ends; `CREATE INDEX CONCURRENTLY`
+does not. Measured at scale 1.0, concurrent builds took 0.3-2.5 s. When the
+agent leaves the keyword out, the tool adds it and says so
+(`concurrently_added: true` and a note). The other options were to refuse
+such a statement, which would let the eval measure whether the agent knows the
+rule, or to run it as given. The user chose safety over measuring that rule.
+
+**Output:** `{"created": true, "index", "table", "definition", "valid",
+"size", "elapsed_ms", "concurrently_added"}`, plus `"note"` when CONCURRENTLY
+was added. `IF NOT EXISTS` on a name that exists gives `{"created": false,
+"table", "note"}`. Build failures come from `db.create_index` as before,
+including the name of any INVALID index a failed concurrent build left.
+
+**Details decided by the orchestrator:**
+- **The keyword is inserted by token position** (`sqlguard.add_concurrently`),
+  never by text search, so comments and quoted names cannot misplace it. The
+  result is classified again and must still be a concurrent CREATE INDEX.
+- **The new index is found by comparing the table's index names before and
+  after the build,** because the agent may leave out the name. Two cases
+  are refused or reported instead of guessed:
+  - **A table that cannot be found is refused before the build.** Found in
+    review: a quoted table name with a dot in it (`"a.b"`) was built, then
+    reported as "nothing was built", because the name lookup failed.
+  - **More than one new index** (another session built one at the same time)
+    gives an error that lists them, instead of a crash or a wrong name.
+- **Leading `;` are dropped** (`strip_terminator`), as `classify` already
+  ignores empty statements. Found in review: `;CREATE INDEX ...` crashed
+  with an AssertionError. The assert is now a ToolError.
+- **`confirm` is unused** in v1 (policy `apply_index_requires_confirm: False`).
+  v2 may add a dry-run step that uses it.
+
+**Built by the orchestrator setup (D18).** The implementer showed each of its
+tests failing with the behaviour broken (D21); the reviewer reproduced two
+bugs and named one race. The orchestrator fixed all three and showed each new
+test failing without its fix.
