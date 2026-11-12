@@ -310,3 +310,109 @@ def test_explain_analyze_cannot_write_even_if_sqlguard_lets_a_write_through(monk
     with pytest.raises(ToolError, match="Refused"):
         tools.explain_query("INSERT INTO types (id, name) VALUES (9999, 'zz_pytest')")
     assert exact_count("types") == before
+
+
+# --------------------------------------------------------------------------- apply_index
+
+SCRATCH = "zz_pytest_apply"
+
+
+@pytest.fixture
+def scratch():
+    """A small table owned by pokedex_dba, with duplicate values in `v`. Never build on the real tables."""
+    with psycopg.connect(config.DBA_DSN, autocommit=True) as c:
+        c.execute(f"DROP TABLE IF EXISTS {SCRATCH}")
+        c.execute(f"CREATE TABLE {SCRATCH} (id int PRIMARY KEY, v int)")
+        c.execute(f"INSERT INTO {SCRATCH} SELECT g, g % 100 FROM generate_series(1, 10000) g")
+    yield SCRATCH
+    db.close()
+    with psycopg.connect(config.DBA_DSN, autocommit=True) as c:
+        c.execute(f"DROP TABLE IF EXISTS {SCRATCH}")
+
+
+def spy_create_index(monkeypatch) -> list[str]:
+    """Record the SQL that apply_index hands to db.create_index."""
+    seen: list[str] = []
+    real = db.create_index
+
+    def spy(sql: str):
+        seen.append(sql)
+        return real(sql)
+
+    monkeypatch.setattr(db, "create_index", spy)
+    return seen
+
+
+@pytest.mark.db
+def test_apply_index_adds_concurrently_and_finds_the_generated_name(scratch, monkeypatch):
+    seen = spy_create_index(monkeypatch)
+    r = tools.apply_index(f"CREATE INDEX ON {scratch} (v);")
+    assert seen == [f"CREATE INDEX CONCURRENTLY ON {scratch} (v)"]
+    assert set(r) == {"created", "index", "table", "definition", "valid", "size", "elapsed_ms",
+                      "concurrently_added", "note"}
+    assert r["created"] is True and r["index"] == f"{scratch}_v_idx" and r["table"] == scratch
+    assert r["valid"] is True and r["concurrently_added"] is True
+    assert r["definition"].startswith(f"CREATE INDEX {scratch}_v_idx ON public.{scratch}")
+    assert r["size"].endswith(("kB", "MB", "bytes")) and isinstance(r["elapsed_ms"], int)
+    assert "CONCURRENTLY was added" in r["note"]
+
+
+@pytest.mark.db
+def test_apply_index_with_a_name_and_concurrently_already_present(scratch, monkeypatch):
+    seen = spy_create_index(monkeypatch)
+    sql = f"create index concurrently zz_pytest_named on {scratch} (v)"
+    r = tools.apply_index(sql)
+    assert seen == [sql]
+    assert r["index"] == "zz_pytest_named" and r["concurrently_added"] is False and "note" not in r
+    assert set(r) == {"created", "index", "table", "definition", "valid", "size", "elapsed_ms",
+                      "concurrently_added"}
+
+
+@pytest.mark.db
+def test_apply_index_if_not_exists_on_an_existing_name_builds_nothing(scratch):
+    tools.apply_index(f"CREATE INDEX zz_pytest_named ON {scratch} (v)")
+    r = tools.apply_index(f"CREATE INDEX IF NOT EXISTS zz_pytest_named ON {scratch} (v)")
+    assert r["created"] is False and r["table"] == scratch
+    assert "already exists" in r["note"] and "index" not in r
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("sql, message", [
+    ("SELECT 1", "run_read_query"),
+    (f"DROP TABLE {SCRATCH}", "DROP"),
+])
+def test_apply_index_refuses_without_touching_the_database(scratch, monkeypatch, sql, message):
+    seen = spy_create_index(monkeypatch)
+    with pytest.raises(ToolError, match=message):
+        tools.apply_index(sql)
+    assert seen == []
+
+
+@pytest.mark.db
+def test_apply_index_unique_on_duplicates_fails_with_a_tool_error(scratch):
+    with pytest.raises(ToolError, match="zz_pytest_dup"):
+        tools.apply_index(f"CREATE UNIQUE INDEX zz_pytest_dup ON {scratch} (v)")
+
+
+@pytest.mark.db
+def test_apply_index_accepts_leading_semicolons_and_a_schema(scratch):
+    r = tools.apply_index(f";CREATE INDEX zz_pytest_semi ON public.{scratch} (v)")
+    assert r["created"] is True and r["index"] == "zz_pytest_semi" and r["concurrently_added"] is True
+
+
+@pytest.mark.db
+def test_apply_index_refuses_a_table_it_cannot_find_before_building(monkeypatch):
+    seen = spy_create_index(monkeypatch)
+    with pytest.raises(ToolError, match="describe_schema"):
+        tools.apply_index("CREATE INDEX ON zz_pytest_no_such_table (v)")
+    assert seen == []
+
+
+@pytest.mark.db
+def test_apply_index_says_so_when_another_session_added_an_index_too(scratch, monkeypatch):
+    """Another session's index appearing during the build must not be reported as ours."""
+    real = tools._index_names
+    calls = iter([lambda t: real(t), lambda t: real(t) | {"zz_someone_elses"}])
+    monkeypatch.setattr(tools, "_index_names", lambda t: next(calls)(t))
+    with pytest.raises(ToolError, match="zz_someone_elses"):
+        tools.apply_index(f"CREATE INDEX zz_pytest_mine ON {scratch} (v)")

@@ -278,6 +278,8 @@ from server.sqlguard import leading_keyword, strip_terminator  # noqa: E402
     ('SELECT 1 AS "a;b";', 'SELECT 1 AS "a;b"'),
     ("SELECT 1 -- a comment; not a terminator", "SELECT 1 -- a comment; not a terminator"),
     ("/* ; */ SELECT 1;", "/* ; */ SELECT 1"),
+    (";SELECT 1", "SELECT 1"),                 # classify() ignores empty statements
+    (";; SELECT 1; ;", " SELECT 1"),
 ])
 def test_strip_terminator(sql, expected):
     assert strip_terminator(sql) == expected
@@ -294,3 +296,32 @@ def test_strip_terminator(sql, expected):
 ])
 def test_leading_keyword(sql, expected):
     assert leading_keyword(sql) == expected
+
+
+# --------------------------------------------------------------- add_concurrently
+
+from server.sqlguard import add_concurrently  # noqa: E402
+
+
+@pytest.mark.parametrize("sql, expected", [
+    ("CREATE INDEX ON t (a)", "CREATE INDEX CONCURRENTLY ON t (a)"),
+    ("CREATE INDEX idx ON t (a)", "CREATE INDEX CONCURRENTLY idx ON t (a)"),
+    ("CREATE UNIQUE INDEX idx ON t (a)", "CREATE UNIQUE INDEX CONCURRENTLY idx ON t (a)"),
+    ("CREATE INDEX IF NOT EXISTS idx ON t (a)", "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx ON t (a)"),
+    ("CREATE INDEX CONCURRENTLY idx ON t (a)", "CREATE INDEX CONCURRENTLY idx ON t (a)"),
+    ("create index concurrently idx on t (a)", "create index concurrently idx on t (a)"),
+    ("CREATE /* x */ UNIQUE -- y\n INDEX idx ON t (a)",
+     "CREATE /* x */ UNIQUE -- y\n INDEX CONCURRENTLY idx ON t (a)"),
+    ("/* index */ CREATE -- INDEX\n INDEX idx ON t (a)",
+     "/* index */ CREATE -- INDEX\n INDEX CONCURRENTLY idx ON t (a)"),
+    ("create unique index idx on t (a)", "create unique index CONCURRENTLY idx on t (a)"),
+    ("CrEaTe InDeX idx ON t (a)", "CrEaTe InDeX CONCURRENTLY idx ON t (a)"),
+    ('CREATE INDEX "index" ON t (a)', 'CREATE INDEX CONCURRENTLY "index" ON t (a)'),
+    ('CREATE INDEX "My Idx" ON "T" (a)', 'CREATE INDEX CONCURRENTLY "My Idx" ON "T" (a)'),
+    ("CREATE INDEX idx ON t (a);", "CREATE INDEX CONCURRENTLY idx ON t (a);"),
+])
+def test_add_concurrently(sql, expected):
+    out = add_concurrently(sql)
+    assert out == expected
+    verdict = classify(out)
+    assert verdict.kind == "create_index" and verdict.concurrently is True

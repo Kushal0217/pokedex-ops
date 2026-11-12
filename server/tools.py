@@ -219,7 +219,85 @@ def check_health() -> dict[str, Any]:
     raise NotImplementedError
 
 
+_INDEX_NAMES_SQL = """
+SELECT t.oid IS NOT NULL,
+       ARRAY(SELECT i.relname FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid WHERE x.indrelid = t.oid)
+FROM (SELECT to_regclass(%s) AS oid) t
+"""
+
+_INDEX_INFO_SQL = """
+SELECT pg_get_indexdef(i.oid), x.indisvalid, pg_size_pretty(pg_relation_size(i.oid))
+FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
+WHERE x.indrelid = to_regclass(%s) AND i.relname = %s
+"""
+
+
+def _quoted(table: str) -> str:
+    return ".".join('"' + part.replace('"', '""') + '"' for part in table.split("."))
+
+
+def _index_names(table: str) -> set[str] | None:
+    """The names of the table's indexes, or None if the table can't be found."""
+    with db.read_only() as cur:
+        found, names = cur.execute(_INDEX_NAMES_SQL, (_quoted(table),)).fetchone()
+    return set(names) if found else None
+
+
 def apply_index(index_sql: str, confirm: bool = False) -> dict[str, Any]:
-    """The only write. CREATE INDEX only, via the write path.
-    Whether `confirm` is required is a toolset policy (v1: no, v2: dry-run then confirm)."""
-    raise NotImplementedError
+    """The only write: build one index with CREATE INDEX CONCURRENTLY, through db.create_index().
+
+    CONCURRENTLY is added when the agent left it out, so a build never blocks
+    writes (DECISIONS A1). The new index is found by comparing the table's index
+    names before and after, because the agent may omit the name.
+    `confirm` is unused for now: v1 policy needs no confirmation; v2 may add a
+    dry-run step that uses it.
+    """
+    verdict = sqlguard.classify(index_sql)
+    if verdict.kind == "read":
+        raise ToolError("apply_index only creates indexes. Use run_read_query for queries.")
+    if verdict.kind != "create_index":
+        raise ToolError(verdict.reason)
+    assert verdict.table is not None
+
+    sql = sqlguard.strip_terminator(index_sql)
+    added = not verdict.concurrently
+    if added:
+        sql = sqlguard.add_concurrently(sql)
+        again = sqlguard.classify(sql)
+        if again.kind != "create_index" or not again.concurrently:
+            raise ToolError("Could not add CONCURRENTLY to this statement. Send it with CONCURRENTLY "
+                            "written out: CREATE INDEX CONCURRENTLY ... ON table (columns).")
+
+    table = verdict.table
+    before = _index_names(table)
+    if before is None:
+        # Checked before the build: afterwards we could not tell what was built.
+        raise ToolError(f"Could not find the table {table}. Check the name with describe_schema. "
+                        "Nothing was built.")
+    built = db.create_index(sql)
+    new = (_index_names(table) or set()) - before
+    if len(new) > 1:
+        raise ToolError(f"The index was built, but other indexes also appeared on {table} during the "
+                        f"build: {', '.join(sorted(new))}. Check with describe_schema which one is yours.")
+    if not new:
+        return {
+            "created": False,
+            "table": table,
+            "note": "Nothing was built because an index with that name already exists.",
+        }
+    (name,) = new
+    with db.read_only() as cur:
+        definition, valid, size = cur.execute(_INDEX_INFO_SQL, (_quoted(table), name)).fetchone()
+    result: dict[str, Any] = {
+        "created": True,
+        "index": name,
+        "table": table,
+        "definition": definition,
+        "valid": valid,
+        "size": size,
+        "elapsed_ms": built["elapsed_ms"],
+        "concurrently_added": added,
+    }
+    if added:
+        result["note"] = "CONCURRENTLY was added, so the build did not block writes to the table."
+    return result

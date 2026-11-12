@@ -313,15 +313,44 @@ def leading_keyword(sql: str) -> str | None:
 
 
 def strip_terminator(sql: str) -> str:
-    """`sql` up to its first top-level ';' (ignoring any inside quotes or comments),
-    so that a single statement can be embedded in a larger one. Text after the ';'
-    is dropped. Call only on SQL that classify() accepted as one statement."""
+    """The one statement in `sql`, without its ';' (ignoring any inside quotes or
+    comments), so that it can be embedded in a larger one. classify() ignores empty
+    statements, so leading ';' are dropped too, and text after the closing ';'.
+    Call only on SQL that classify() accepted as one statement."""
     starts: list[int] = []
     try:
         toks = _tokenize(sql, starts)
     except _ParseError:
         return sql
+    begin = 0
+    seen_content = False
     for tok, pos in zip(toks, starts):
-        if tok == _Tok("punct", ";"):
-            return sql[:pos]
+        if tok != _Tok("punct", ";"):
+            seen_content = True
+        elif seen_content:
+            return sql[begin:pos]
+        else:
+            begin = pos + 1
+    return sql[begin:]
+
+
+def add_concurrently(sql: str) -> str:
+    """`sql` (one CREATE INDEX) with CONCURRENTLY inserted right after the INDEX
+    keyword, so the build does not block writes. Unchanged if it is already there.
+    Uses token positions, not text search, so comments and quoted names are safe.
+    Call only on SQL that classify() accepted as create_index."""
+    starts: list[int] = []
+    try:
+        toks = _tokenize(sql, starts)
+    except _ParseError:
+        return sql
+    for k, tok in enumerate(toks):
+        if tok == _Tok("word", "index"):
+            nxt = toks[k + 1] if k + 1 < len(toks) else None
+            if nxt == _Tok("word", "concurrently"):
+                return sql
+            end = starts[k] + len("index")
+            return f"{sql[:end]} CONCURRENTLY{sql[end:]}"
+        if tok.kind != "word" or tok.text not in ("create", "unique"):
+            break
     return sql
