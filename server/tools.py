@@ -213,10 +213,154 @@ def propose_index(sql: str, index_sql: str | None = None) -> dict[str, Any]:
     raise NotImplementedError
 
 
+# --------------------------------------------------------------------------- check_health
+
+LONG_RUNNING_S = 5   # an active query older than this is "long running"
+# Sizes come from pg_class.relpages, not pg_total_relation_size(): that function locks each
+# table, and one ACCESS EXCLUSIVE lock (the very situation the report must show) would cancel the
+# whole section. relpages is updated by VACUUM, ANALYZE and CREATE INDEX, so it is an estimate.
+# The lock_timeout stays as a backstop, so no section can wait out the whole statement_timeout.
+_HEALTH_LOCK_TIMEOUT_MS = 1000
+
+# The tools' own sessions are left out of every activity section, so the report never shows itself.
+_OURS = list(db.APP_NAMES.values())
+_CLIENTS = "datname = current_database() AND backend_type = 'client backend' AND application_name <> ALL(%(ours)s)"
+
+_CONNECTIONS_SQL = f"""
+SELECT coalesce(state, 'unknown'), count(*) FROM pg_stat_activity
+WHERE {_CLIENTS} GROUP BY 1 ORDER BY 1
+"""
+
+_LONG_RUNNING_SQL = f"""
+SELECT pid, round(extract(epoch FROM now() - query_start)::numeric, 1), left(query, 200)
+FROM pg_stat_activity
+WHERE {_CLIENTS} AND state = 'active' AND now() - query_start > make_interval(secs => %(secs)s)
+ORDER BY query_start
+"""
+
+_BLOCKING_SQL = f"""
+SELECT pid, pg_blocking_pids(pid), round(extract(epoch FROM now() - query_start)::numeric, 1), left(query, 200)
+FROM pg_stat_activity
+WHERE {_CLIENTS} AND cardinality(pg_blocking_pids(pid)) > 0
+ORDER BY query_start
+"""
+
+_CACHE_SQL = """
+SELECT round(100.0 * blks_hit / nullif(blks_hit + blks_read, 0), 2)
+FROM pg_stat_database WHERE datname = current_database()
+"""
+
+# reltuples, not n_live_tup: n_live_tup reads 0 after a restart (see describe_schema).
+# Timestamps to whole seconds: microseconds cost tokens and tell a DBA nothing.
+_HEALTH_TABLES_SQL = """
+SELECT c.relname, c.reltuples::bigint, s.n_dead_tup,
+       date_trunc('second', greatest(s.last_vacuum, s.last_autovacuum)),
+       date_trunc('second', greatest(s.last_analyze, s.last_autoanalyze)),
+       s.seq_scan, s.idx_scan, pg_size_pretty(p.pages * current_setting('block_size')::bigint)
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+CROSS JOIN LATERAL (
+  SELECT c.relpages::bigint
+         + coalesce((SELECT t.relpages FROM pg_class t WHERE t.oid = c.reltoastrelid), 0)
+         + coalesce((SELECT sum(i.relpages) FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
+                     WHERE x.indrelid = c.oid), 0) AS pages
+) p
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+ORDER BY p.pages DESC, c.relname
+"""
+
+_INVALID_INDEXES_SQL = """
+SELECT i.relname, t.relname
+FROM pg_index x
+JOIN pg_class i ON i.oid = x.indexrelid
+JOIN pg_class t ON t.oid = x.indrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = 'public' AND NOT x.indisvalid
+ORDER BY 2, 1
+"""
+
+# Primary keys and unique indexes enforce constraints, so "never scanned" is fine for them.
+_UNUSED_INDEXES_SQL = """
+SELECT s.indexrelname, s.relname, pg_size_pretty(i.relpages::bigint * current_setting('block_size')::bigint)
+FROM pg_stat_user_indexes s
+JOIN pg_index x ON x.indexrelid = s.indexrelid
+JOIN pg_class i ON i.oid = s.indexrelid
+WHERE s.schemaname = 'public' AND s.idx_scan = 0 AND NOT x.indisprimary AND NOT x.indisunique
+ORDER BY i.relpages DESC, 1
+"""
+
+_STATS_SINCE_SQL = "SELECT date_trunc('second', stats_reset) FROM pg_stat_database WHERE datname = current_database()"
+
+_TOP_QUERIES_SQL = """
+SELECT left(query, 200), calls, round(total_exec_time)::bigint, round(mean_exec_time::numeric, 1), rows
+FROM pg_stat_statements
+WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  AND userid NOT IN (SELECT oid FROM pg_roles WHERE rolname IN ('pokedex_agent', 'pokedex_dba'))
+ORDER BY total_exec_time DESC LIMIT 5
+"""
+
+_REPLICATION_SQL = "SELECT client_addr::text, state, replay_lag::text FROM pg_stat_replication"
+
+
+# When the database itself is gone, every section would wait out the pool timeout in turn.
+_DATABASE_GONE = {db._UNREACHABLE, db._LOST}
+
+
+def _health_section(sql: str, shape: Any, params: dict[str, Any] | None = None) -> Any:
+    """Run one section in its own read-only block, so a failure hides only that section.
+    If the database is unreachable, stop the whole report at once instead."""
+    try:
+        with db.read_only() as cur:
+            cur.execute("SELECT set_config('lock_timeout', %s, true)", (f"{_HEALTH_LOCK_TIMEOUT_MS}ms",))
+            rows = cur.execute(sql, {"ours": _OURS, **(params or {})}).fetchall()
+        return _jsonable(shape(rows))
+    except ToolError as err:
+        if str(err) in _DATABASE_GONE:
+            raise
+        return {"error": str(err)}
+
+
+def _replication(rows: list[tuple[Any, ...]]) -> Any:
+    if not rows:
+        return "no replica configured"
+    return [{"client_addr": a, "state": st, "replay_lag": lag} for a, st, lag in rows]
+
+
 def check_health() -> dict[str, Any]:
-    """Connections, locks/blocking, cache hit ratio, table bloat, long-running queries.
-    Replication: reported as 'no replica configured', never faked."""
-    raise NotImplementedError
+    """One-call health report: nine sections, each run on its own so one failure hides nothing else.
+
+    Empty lists are information ("nothing blocking"), so they stay. `stats_since`
+    says when the statistics began, because "unused index" only means unused since then.
+    Replication is reported as 'no replica configured' and never invented.
+    """
+    return {
+        "connections": _health_section(_CONNECTIONS_SQL, lambda rows: {state: n for state, n in rows}),
+        "long_running": _health_section(
+            _LONG_RUNNING_SQL,
+            lambda rows: [{"pid": p, "seconds": sec, "query": q} for p, sec, q in rows],
+            {"secs": LONG_RUNNING_S}),
+        "blocking": _health_section(
+            _BLOCKING_SQL,
+            lambda rows: [{"pid": p, "blocked_by": by, "seconds_waiting": sec, "query": q}
+                          for p, by, sec, q in rows]),
+        "cache_hit_pct": _health_section(_CACHE_SQL, lambda rows: rows[0][0] if rows else None),
+        "tables": _health_section(
+            _HEALTH_TABLES_SQL,
+            lambda rows: [{"name": n, "rows_estimate": r if r >= 0 else None, "dead_rows": dead,
+                           "last_vacuum": v, "last_analyze": a, "seq_scan": seq, "idx_scan": idx, "size": size}
+                          for n, r, dead, v, a, seq, idx, size in rows]),
+        "invalid_indexes": _health_section(
+            _INVALID_INDEXES_SQL, lambda rows: [{"name": i, "table": t} for i, t in rows]),
+        "unused_indexes": _health_section(
+            _UNUSED_INDEXES_SQL, lambda rows: [{"name": i, "table": t, "size": size} for i, t, size in rows]),
+        "stats_since": _health_section(_STATS_SINCE_SQL, lambda rows: rows[0][0] if rows else None),
+        "top_queries": _health_section(
+            _TOP_QUERIES_SQL,
+            lambda rows: [{"query": q, "calls": c, "total_ms": t, "mean_ms": m, "rows": r}
+                          for q, c, t, m, r in rows]),
+        "replication": _health_section(_REPLICATION_SQL, _replication),
+    }
 
 
 _INDEX_NAMES_SQL = """

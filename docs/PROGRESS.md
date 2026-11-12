@@ -14,7 +14,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | # | step | status |
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
-| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 4 of the 6 tools done |
+| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 5 of the 6 tools done |
 | 3 | SKILL.md and the task set | not started |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
@@ -28,16 +28,15 @@ Steps from ARCHITECTURE.md, "Build order".
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
 | `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 24 cases (23 need the database) |
-| `server/tools.py` | `describe_schema`, `run_read_query`, `explain_query` and `apply_index` implemented; `propose_index` and `check_health` are stubs | `tests/test_tools.py`, 65 cases (51 need the database) |
+| `server/tools.py` | all implemented except `propose_index`, which is a stub | `tests/test_tools.py`, 75 cases (60 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 302 tests; locally 301 pass with the database running, and one
-fails for a known reason (see Open items). CI runs all of them in two jobs:
-`test` (`pytest -m "not db"`, 223 tests) and `db-test` (the 79 database tests
-against a freshly built image). Locally, the database tests
+Test suite: 312 tests, all passing locally with the database running. CI
+runs all of them in two jobs: `test` (`pytest -m "not db"`, 224 tests) and
+`db-test` (the 88 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -207,6 +206,23 @@ full-scale database, 41 tests in `tests/test_tools.py`:
   INVALID index; IF NOT EXISTS on an existing name gives `created: false`;
   another session's index during the build gives an error, not a wrong name.
 
+**`check_health`** (2026-11-11), 10 tests (DECISIONS D23):
+- **All nine sections** and `stats_since` are present, and `replication` is
+  "no replica configured".
+- **Activity:** another session's `pg_sleep` over the threshold is listed
+  in `long_running`, and the same under `pokedex-ops:read` is not; a lock
+  wait is listed in `blocking` with the right blocker pid.
+- **Indexes:** a failed concurrent UNIQUE build is listed as invalid, and a
+  fresh non-unique index as unused.
+- **Under trouble:** with a table under an ACCESS EXCLUSIVE lock the report
+  still has every table and returns in under 3 s; with the database down it
+  stops at once with "not reachable"; a broken section becomes
+  `{"error": ...}` and the others still return.
+- **`top_queries`:** after a statistics reset, the same query run by the
+  agent role (0.3 s) and by postgres (0.2 s) gives one entry, postgres's.
+- **Measured:** about 90 ms and 3,269 characters (about 820 tokens) on the
+  scale 1.0 database.
+
 **`claude -p` as an eval runner: first probe** (2026-11-11, Claude Code
 2.1.322, Haiku, two one-question sessions, $0.003 at list price):
 - **The output can be graded.** `--output-format stream-json --verbose`
@@ -239,11 +255,13 @@ full-scale database, 41 tests in `tests/test_tools.py`:
   `db._tool_error`, including a cancel from another session, and its advice
   ("use EXPLAIN without ANALYZE") is wrong when explain_query's plain
   fallback itself times out. Rare; found in the D20 review.
-- [ ] **`test_reset_query_stats_empties_pg_stat_statements` fails on a
+- [ ] **`test_reset_query_stats_empties_pg_stat_statements` can fail on a
   long-used local database.** pg_stat_statements groups queries by shape and
   ignores column aliases, so if `SELECT count(*) FROM types` ran earlier, the
   test's marker alias is never stored. CI seeds a fresh database and passes.
-  Proposed fix: find the query by `pg_stat_activity.query_id`.
+  Since PR #18 it also passes locally in a full run, but only because a
+  `check_health` test resets the statistics first. Proposed fix: find the
+  query by `pg_stat_activity.query_id`.
 - [ ] **A rolled-back write still changes the physical state.** A task
   setup check inserted one row into `teams` and rolled it back; the dead row
   left one page not all-visible, which plain VACUUM did not fix ("index scan
@@ -261,9 +279,8 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-The remaining two tools in `server/tools.py`: `check_health` (H1, all nine
-sections) and `propose_index` (P1, P2; it must reset hypopg's hypothetical
-indexes, which leak across pooled connections). Build them with the orchestrator setup (D18) and record each
+The last tool in `server/tools.py`: `propose_index` (P1, P2; it must reset
+hypopg's hypothetical indexes, which leak across pooled connections). Build them with the orchestrator setup (D18) and record each
 delegation in `docs/orchestration-log.md`. The three done so far aren't in
 the skill's `reference/tools.md` yet; that's part of step 3.
 
@@ -288,3 +305,4 @@ the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #15 | `explain_query` (raw EXPLAIN ANALYZE text, BUFFERS, timeout fallback); first work built by the orchestrator setup (D20) |
 | 2026-11-11 | #16 | Implementer subagent must show each new test failing with its behaviour broken (D21) |
 | 2026-11-11 | #17 | `apply_index`: always CONCURRENTLY, new index found by name diff (D22); `claude -p` probe recorded |
+| 2026-11-11 | #18 | `check_health`: nine sections, lock-free sizes, stops at once when the database is down (D23) |
