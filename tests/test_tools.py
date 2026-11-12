@@ -313,6 +313,111 @@ def test_explain_analyze_cannot_write_even_if_sqlguard_lets_a_write_through(monk
     assert exact_count("types") == before
 
 
+# --------------------------------------------------------------------------- propose_index
+
+WINNER_SQL = "SELECT count(*) FROM battles WHERE winner_team_id = 4242"
+
+
+def real_index_names(table: str) -> set[str]:
+    with psycopg.connect(config.ADMIN_DSN) as c:
+        rows = c.execute("SELECT indexname FROM pg_indexes WHERE tablename = %s", (table,)).fetchall()
+    return {r[0] for r in rows}
+
+
+@pytest.mark.db
+def test_propose_index_helpful_index_is_used_and_cuts_the_cost():
+    out = tools.propose_index(WINNER_SQL, "CREATE INDEX ON battles (winner_team_id);")
+    assert set(out) == {"index_sql", "used_by_planner", "cost_before", "cost_after",
+                        "cost_reduction_pct", "estimated_size_mb", "plan"}
+    assert out["index_sql"] == "CREATE INDEX ON battles (winner_team_id)"
+    assert out["used_by_planner"] is True
+    assert out["cost_reduction_pct"] > 90
+    assert out["cost_after"] < out["cost_before"]
+    assert "Index" in out["plan"] and "Scan" in out["plan"]
+    assert out["estimated_size_mb"] > 0
+
+
+@pytest.mark.db
+def test_propose_index_unhelpful_index_is_not_used():
+    out = tools.propose_index(WINNER_SQL, "CREATE INDEX ON battles (turns)")
+    assert out["used_by_planner"] is False
+    assert out["cost_after"] == out["cost_before"]
+    assert out["cost_reduction_pct"] == 0.0
+
+
+@pytest.mark.db
+def test_propose_index_builds_nothing():
+    before = real_index_names("battles")
+    tools.propose_index(WINNER_SQL, "CREATE INDEX ON battles (winner_team_id)")
+    assert real_index_names("battles") == before
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("index_sql", [
+    "CREATE INDEX CONCURRENTLY ON battles (winner_team_id)",
+    "CREATE INDEX IF NOT EXISTS my_idx ON battles (winner_team_id)",
+    "CREATE UNIQUE INDEX my_idx ON public.battles USING btree (winner_team_id)",
+])
+def test_propose_index_accepts_concurrently_if_not_exists_and_names(index_sql):
+    """hypopg takes all of these as they are, so the statement is not rewritten."""
+    out = tools.propose_index(WINNER_SQL, index_sql)
+    assert out["index_sql"] == index_sql
+    assert out["used_by_planner"] is True
+
+
+@pytest.mark.db
+def test_propose_index_leaves_no_hypothetical_index_in_the_session(monkeypatch):
+    monkeypatch.setattr(config, "READ_POOL_MAX", 1)
+    db.close()  # the next pool has one connection, so every call reuses it
+    tools.propose_index(WINNER_SQL, "CREATE INDEX ON battles (winner_team_id)")
+    with db.read_only() as cur:
+        assert cur.execute("SELECT count(*) FROM hypopg()").fetchone()[0] == 0
+
+
+@pytest.mark.db
+def test_propose_index_cleans_up_by_itself(monkeypatch):
+    """The tool's own reset, tested without the one in db._begin_read."""
+    def begin_without_reset(conn):
+        conn.execute("BEGIN READ ONLY", prepare=True)
+
+    monkeypatch.setattr(config, "READ_POOL_MAX", 1)
+    monkeypatch.setattr(db, "_begin_read", begin_without_reset)
+    db.close()
+    with db.read_only() as cur:                      # an index the agent hid via run_read_query
+        cur.execute("SELECT hypopg_hide_index('battles_pkey'::regclass)").fetchall()
+    tools.propose_index(WINNER_SQL, "CREATE INDEX ON battles (winner_team_id)")
+    with db.read_only() as cur:
+        assert cur.execute("SELECT count(*) FROM hypopg()").fetchone()[0] == 0
+        assert cur.execute("SELECT count(*) FROM hypopg_hidden_indexes()").fetchone()[0] == 0
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("sql, index_sql, message", [
+    ("DELETE FROM battles", "CREATE INDEX ON battles (turns)", "DELETE"),
+    ("EXPLAIN SELECT 1", "CREATE INDEX ON battles (turns)", "propose_index adds EXPLAIN itself"),
+    ("CREATE INDEX ON battles (turns)", "CREATE INDEX ON battles (turns)", "propose_index only explains"),
+    ("SHOW work_mem", "CREATE INDEX ON battles (turns)", "run_read_query"),
+    (WINNER_SQL, "SELECT 1", "CREATE INDEX statement"),
+    (WINNER_SQL, "DROP INDEX battles_pkey", "CREATE INDEX statement"),
+    (WINNER_SQL, "CREATE INDEX ON battles (turns); DROP TABLE battles", "one statement"),
+])
+def test_propose_index_refuses_with_a_reason(sql, index_sql, message):
+    with pytest.raises(ToolError, match=message):
+        tools.propose_index(sql, index_sql)
+
+
+@pytest.mark.db
+def test_propose_index_names_a_bad_column_in_index_sql():
+    with pytest.raises(ToolError, match=r'index_sql.*column "nope" does not exist'):
+        tools.propose_index(WINNER_SQL, "CREATE INDEX ON battles (nope)")
+
+
+@pytest.mark.db
+def test_propose_index_error_positions_point_into_the_agents_sql():
+    with pytest.raises(ToolError, match=r'column "nope" does not exist \(at character 8\)'):
+        tools.propose_index("SELECT nope FROM pokemon", "CREATE INDEX ON pokemon (name)")
+
+
 # --------------------------------------------------------------------------- apply_index
 
 SCRATCH = "zz_pytest_apply"

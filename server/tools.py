@@ -16,6 +16,7 @@ import decimal
 import math
 import time
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import psycopg
@@ -166,6 +167,22 @@ def _explain(body: str, options: str) -> str:
         return "\n".join(row[0] for row in cur.fetchall())
 
 
+def _explainable_body(sql: str, tool: str) -> str:
+    """Check that `sql` is one read query EXPLAIN can explain, and return it without its
+    terminator. Shared by explain_query and propose_index; `tool` names the caller in messages."""
+    keyword = sqlguard.leading_keyword(sql)
+    if keyword == "explain":
+        raise ToolError(f"{tool} adds EXPLAIN itself. Send the query without the EXPLAIN keyword.")
+    verdict = sqlguard.classify(sql)
+    if verdict.kind == "create_index":
+        raise ToolError(f"{tool} only explains read-only queries. Use apply_index to create an index.")
+    if verdict.kind != "read":
+        raise ToolError(verdict.reason)
+    if keyword == "show":
+        raise ToolError("EXPLAIN cannot explain a SHOW statement. Use run_read_query to run it.")
+    return sqlguard.strip_terminator(sql)
+
+
 def explain_query(sql: str) -> dict[str, Any]:
     """Return the raw text plan of EXPLAIN (ANALYZE, BUFFERS) for one read query.
 
@@ -174,18 +191,7 @@ def explain_query(sql: str) -> dict[str, Any]:
     cancels it, the plan comes from plain EXPLAIN (estimates only, nothing runs)
     and a note says so. Output: {"plan", "analyzed"}, plus "note" on fallback.
     """
-    keyword = sqlguard.leading_keyword(sql)
-    if keyword == "explain":
-        raise ToolError("explain_query adds EXPLAIN itself. Send the query without the EXPLAIN keyword.")
-    verdict = sqlguard.classify(sql)
-    if verdict.kind == "create_index":
-        raise ToolError("explain_query only explains read-only queries. Use apply_index to create an index.")
-    if verdict.kind != "read":
-        raise ToolError(verdict.reason)
-    if keyword == "show":
-        raise ToolError("EXPLAIN cannot explain a SHOW statement. Use run_read_query to run it.")
-
-    body = sqlguard.strip_terminator(sql)
+    body = _explainable_body(sql, "explain_query")
     started = time.monotonic()
     try:
         return {"plan": _explain(body, "(ANALYZE, BUFFERS)"), "analyzed": True}
@@ -207,10 +213,70 @@ def explain_query(sql: str) -> dict[str, Any]:
     }
 
 
-def propose_index(sql: str, index_sql: str | None = None) -> dict[str, Any]:
-    """Estimate an index's benefit with hypopg (hypothetical index, nothing is built).
-    If index_sql is omitted, derive candidates from the plan and rank them."""
-    raise NotImplementedError
+def _plan_nodes(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Every node of a JSON plan tree, parents before children."""
+    yield node
+    for child in node.get("Plans", ()):
+        yield from _plan_nodes(child)
+
+
+def _explain_json(cur: db.Cursor, body: str) -> dict[str, Any]:
+    """The top node of a plain EXPLAIN (FORMAT JSON) plan."""
+    cur.execute(f"EXPLAIN (FORMAT JSON)\n{body}")
+    return cur.fetchone()[0][0]["Plan"]
+
+
+def propose_index(sql: str, index_sql: str) -> dict[str, Any]:
+    """Test the agent's own CREATE INDEX with hypopg: a hypothetical index, nothing is built.
+
+    Returns the planner's cost before and after, whether the planner uses the index,
+    its estimated size and the new plan. Plain EXPLAIN only: EXPLAIN ANALYZE ignores
+    hypothetical indexes. hypopg accepts CONCURRENTLY, IF NOT EXISTS, a name, UNIQUE,
+    WHERE and INCLUDE as they are (it makes up its own name), so index_sql is not rewritten.
+    A hypothetical index belongs to the session, not the transaction, so it is reset here
+    and again whenever db.py hands out a connection (DECISIONS D24).
+    """
+    body = _explainable_body(sql, "propose_index")
+    verdict = sqlguard.classify(index_sql)
+    if verdict.kind != "create_index":
+        why = f" {verdict.reason}" if verdict.kind == "forbidden" else ""
+        raise ToolError("propose_index needs one CREATE INDEX statement in index_sql, for example "
+                        f"CREATE INDEX ON battles (winner_team_id).{why}")
+    index_stmt = sqlguard.strip_terminator(index_sql)
+
+    # Error positions in `sql` count from the start of the first EXPLAIN statement.
+    offset = len("EXPLAIN (FORMAT JSON)\n")
+    with db.read_only(position_offset=offset) as cur:
+        try:
+            before = _explain_json(cur, body)
+            try:
+                oid, name = cur.execute(
+                    "SELECT indexrelid, indexname FROM hypopg_create_index(%s)", (index_stmt,)
+                ).fetchone()
+            except psycopg.Error as e:
+                raise ToolError(f"Could not test index_sql: {db._tool_error(e)}") from e
+            after = _explain_json(cur, body)
+            used = any(n.get("Index Name") == name for n in _plan_nodes(after))
+            cur.execute(f"EXPLAIN\n{body}")
+            plan = "\n".join(row[0] for row in cur.fetchall())
+            size = cur.execute("SELECT hypopg_relation_size(%s)", (oid,)).fetchone()[0]
+        finally:
+            try:
+                cur.execute("SELECT hypopg_reset(), hypopg_unhide_all_indexes()")
+            except psycopg.Error:
+                pass  # the transaction already failed; db._begin_read resets on the next checkout
+
+    cost_before, cost_after = float(before["Total Cost"]), float(after["Total Cost"])
+    reduction = 100 * (1 - cost_after / cost_before) if cost_before else 0.0
+    return {
+        "index_sql": index_stmt,
+        "used_by_planner": used,
+        "cost_before": cost_before,
+        "cost_after": cost_after,
+        "cost_reduction_pct": round(reduction, 1),
+        "estimated_size_mb": round(size / (1024 * 1024), 1),
+        "plan": plan,
+    }
 
 
 # --------------------------------------------------------------------------- check_health
