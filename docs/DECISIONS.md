@@ -628,3 +628,54 @@ v2 candidate, decided from the transcripts. The report takes about 90 ms.
 **Built by the orchestrator setup (D18).** The reviewer reproduced both
 failures above and found that nothing tested the `top_queries` filter. The
 orchestrator fixed all three and showed each new test failing without its fix.
+
+## D24. What `propose_index` does, and hypopg state never leaks (2026-11-11)
+
+**Decided by the user:**
+- **P1, "Agent proposes".** The agent writes the CREATE INDEX and the tool
+  only tests it, so `index_sql` is required (v1 schema changed by the
+  orchestrator). The rejected option, a tool that finds candidates itself,
+  would have done the agent's DBA reasoning for it, so the eval would measure
+  the tool more than the agent.
+- **P2, "Numbers + new plan".** Output: `{"index_sql", "used_by_planner",
+  "cost_before", "cost_after", "cost_reduction_pct", "estimated_size_mb",
+  "plan"}`. Measured: `encounters (trainer_id)` for one trainer's caught
+  encounters gives cost 76,237 -> 103 (99.9% lower), used, 138.4 MB estimated,
+  in 461 characters (about 115 tokens).
+
+**How it works.** In one read-only transaction: plain `EXPLAIN (FORMAT JSON)`
+of the query, `hypopg_create_index(index_sql)`, the same EXPLAIN again, the
+plain text plan, and `hypopg_relation_size`. Plain EXPLAIN only, because
+EXPLAIN ANALYZE ignores hypothetical indexes. `used_by_planner` is true when
+the name hypopg generated (for example `<13630>btree_encounters_trainer_id`)
+is an "Index Name" anywhere in the plan tree.
+- **`index_sql` is passed to hypopg unchanged.** hypopg 1.4.5 accepts
+  CONCURRENTLY, IF NOT EXISTS, a name, UNIQUE, WHERE and INCLUDE as they are,
+  so the agent tests exactly what it would send to `apply_index`. hypopg
+  makes up its own index name.
+- **The size is hypopg's estimate,** named `estimated_size_mb`. It was 1.3 to
+  3.7 times the real size on six indexes (138 MB estimated, 37 MB real here).
+- **The query gets the same checks and messages as `explain_query`**
+  (a shared helper); `index_sql` must classify as CREATE INDEX.
+
+**hypopg state never leaks between calls.** Hypothetical indexes, and real
+indexes hidden with `hypopg_hide_index()`, belong to the database session,
+not the transaction: ROLLBACK does not undo them, so on a pooled connection
+they reached the next caller and changed its plans. The agent can create
+either through `run_read_query`, because sqlguard has no rule for hypopg
+functions. Both are cleared in two places:
+- **`db._begin_read`,** in the same statement as the existing `set_config`,
+  each time a read connection is checked out (about 0.25 ms per call). This
+  covers every tool, including `explain_query`'s plain-EXPLAIN fallback.
+  Every read tool now needs the hypopg extension, which the image installs.
+- **`propose_index`'s own `finally`,** so it never depends on the next caller.
+
+Found in review: the first version cleared only hypothetical indexes
+(`hypopg_reset()`). The reviewer hid `battles_pkey` through `run_read_query`,
+and a later `propose_index` reported a cost of 32,364 instead of about 8. Now
+`hypopg_unhide_all_indexes()` runs next to it.
+
+**Built by the orchestrator setup (D18).** The implementer showed each test
+failing with its behaviour broken (D21). The reviewer found the hidden-index
+leak and that one test passed without the tool's own reset. The orchestrator
+fixed both and showed each new test failing without its fix.

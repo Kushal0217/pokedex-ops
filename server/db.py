@@ -181,7 +181,12 @@ class Cursor:
 
 def _begin_read(conn: psycopg.Connection) -> None:
     conn.execute("BEGIN READ ONLY", prepare=True)
-    conn.execute("SELECT set_config('statement_timeout', %s, true)",
+    # hypopg's hypothetical indexes, and real indexes hidden with hypopg_hide_index(), last as
+    # long as the session: ROLLBACK does not undo them. Clearing both here, in the same round
+    # trip, stops one caller's planner changes from leaking to the next (DECISIONS D24).
+    # This makes every read tool depend on the hypopg extension, which the image installs.
+    conn.execute("SELECT set_config('statement_timeout', %s, true), hypopg_reset(), "
+                 "hypopg_unhide_all_indexes()",
                  (f"{config.STATEMENT_TIMEOUT_MS}ms",), prepare=True)
 
 

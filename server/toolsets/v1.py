@@ -22,7 +22,7 @@ TOOLSET = Toolset(
         ToolSpec("propose_index", "TODO: v1 description.",
                  {"type": "object",
                   "properties": {"sql": {"type": "string"}, "index_sql": {"type": "string"}},
-                  "required": ["sql"]},
+                  "required": ["sql", "index_sql"]},
                  tools.propose_index),
         ToolSpec("check_health", "TODO: v1 description.", {"type": "object", "properties": {}},
                  tools.check_health),

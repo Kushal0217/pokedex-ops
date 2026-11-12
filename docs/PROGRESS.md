@@ -14,7 +14,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | # | step | status |
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
-| 2 | `sqlguard` + `db` + read-only tools, with tests | **in progress**: `sqlguard`, `db.py`, and 5 of the 6 tools done |
+| 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | not started |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
@@ -26,17 +26,17 @@ Steps from ARCHITECTURE.md, "Build order".
 |--------|--------|-------|
 | `server/sqlguard.py` | implemented, plus `strip_terminator`, `leading_keyword` and `add_concurrently` helpers | `tests/test_sqlguard.py`, 171 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
-| `server/toolsets/v1.py` | names and schemas done; descriptions are still `TODO` | `tests/test_scaffold.py` |
-| `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors | `tests/test_db.py`, 24 cases (23 need the database) |
-| `server/tools.py` | all implemented except `propose_index`, which is a stub | `tests/test_tools.py`, 75 cases (60 need the database) |
+| `server/toolsets/v1.py` | names and schemas done (`propose_index` requires `index_sql`, D24); descriptions are still `TODO` | `tests/test_scaffold.py` |
+| `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors, hypopg state cleared on each read checkout | `tests/test_db.py`, 26 cases (25 need the database) |
+| `server/tools.py` | all six tools implemented | `tests/test_tools.py`, 92 cases (77 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 312 tests, all passing locally with the database running. CI
+Test suite: 331 tests, all passing locally with the database running. CI
 runs all of them in two jobs: `test` (`pytest -m "not db"`, 224 tests) and
-`db-test` (the 88 database tests against a freshly built image). Locally, the database tests
+`db-test` (the 107 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -223,6 +223,19 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 - **Measured:** about 90 ms and 3,269 characters (about 820 tokens) on the
   scale 1.0 database.
 
+**`propose_index`** (2026-11-11), 18 tests (DECISIONS D24):
+- **A helpful index** (`battles (winner_team_id)` for one team's wins) is
+  used, with a cost over 90% lower; **an unhelpful one** (`battles (turns)`)
+  is not used and leaves the cost the same.
+- **Nothing is built:** the real indexes of `battles` are unchanged.
+- **CONCURRENTLY, IF NOT EXISTS and a name** are accepted as written.
+- **Refused with a reason:** a query that is not a read, a query starting
+  with EXPLAIN, SHOW, an `index_sql` that is not one CREATE INDEX, and a bad
+  column (an error that names it). Error positions point into the agent's SQL.
+- **No hypopg state survives a call:** after a hypothetical index or a
+  hidden real index, the next read call on the same pooled connection sees
+  none, through the `db.py` reset alone and through the tool's reset alone.
+
 **`claude -p` as an eval runner: first probe** (2026-11-11, Claude Code
 2.1.322, Haiku, two one-question sessions, $0.003 at list price):
 - **The output can be graded.** `--output-format stream-json --verbose`
@@ -279,8 +292,11 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-The last tool in `server/tools.py`: `propose_index` (P1, P2; it must reset
-hypopg's hypothetical indexes, which leak across pooled connections). Build them with the orchestrator setup (D18) and record each
+Step 2 is done: all six tools work and are tested. Next is step 3: the
+v1 tool descriptions (a plain first draft, not tuned), the skill's
+`SKILL.md` and `reference/tools.md`, and the eval task set (12 dev tasks are
+written; the held-out set waits for a decision, see the tasks PR). Then
+step 4: the eval runner, after a measured `claude -p` trial. Build them with the orchestrator setup (D18) and record each
 delegation in `docs/orchestration-log.md`. The three done so far aren't in
 the skill's `reference/tools.md` yet; that's part of step 3.
 
@@ -306,3 +322,4 @@ the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #16 | Implementer subagent must show each new test failing with its behaviour broken (D21) |
 | 2026-11-11 | #17 | `apply_index`: always CONCURRENTLY, new index found by name diff (D22); `claude -p` probe recorded |
 | 2026-11-11 | #18 | `check_health`: nine sections, lock-free sizes, stops at once when the database is down (D23) |
+| 2026-11-11 | #19 | `propose_index` with hypopg; hypothetical and hidden indexes cleared on each read checkout (D24). Step 2 done |

@@ -55,6 +55,29 @@ def test_read_runs_in_a_read_only_transaction_with_the_configured_timeout(monkey
 
 
 @pytest.mark.db
+def test_a_new_read_call_starts_with_no_hypothetical_indexes(monkeypatch):
+    """hypopg indexes outlive ROLLBACK, so a pooled connection must clear them on checkout."""
+    monkeypatch.setattr(config, "READ_POOL_MAX", 1)
+    db.close()
+    with db.read_only() as cur:
+        cur.execute("SELECT * FROM hypopg_create_index('CREATE INDEX ON battles (turns)')").fetchall()
+        assert cur.execute("SELECT count(*) FROM hypopg()").fetchone()[0] == 1
+    assert read_one("SELECT count(*) FROM hypopg()") == (0,)
+
+
+@pytest.mark.db
+def test_a_new_read_call_starts_with_no_hidden_indexes(monkeypatch):
+    """hypopg_hide_index() hides a real index from the planner for the whole session, survives
+    ROLLBACK, and is not undone by hypopg_reset(). The agent can call it via run_read_query."""
+    monkeypatch.setattr(config, "READ_POOL_MAX", 1)
+    db.close()
+    with db.read_only() as cur:
+        cur.execute("SELECT hypopg_hide_index('battles_pkey'::regclass)").fetchall()
+        assert cur.execute("SELECT count(*) FROM hypopg_hidden_indexes()").fetchone()[0] == 1
+    assert read_one("SELECT count(*) FROM hypopg_hidden_indexes()") == (0,)
+
+
+@pytest.mark.db
 def test_multiple_statements_are_refused_by_postgres():
     """Layer 2: prepared statements hold one statement, whatever sqlguard said."""
     with pytest.raises(ToolError, match="multiple commands"):
