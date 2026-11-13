@@ -252,3 +252,58 @@ def test_write_path_recovers_when_its_connection_is_killed(scratch):
                   "WHERE usename = 'pokedex_dba' AND pid <> pg_backend_pid()")
     db.create_index(f"CREATE INDEX zz_pytest_b ON {scratch} (id, v)")   # setup retried, build ran once
     assert {"zz_pytest_a", "zz_pytest_b"} <= set(indexes(scratch))
+
+
+# --------------------------------------------------------------------------- timeout vs cancel by another session
+
+def _cancel_when_waiting(predicate_sql: str, params: tuple, timeout_s: float = 10.0) -> int:
+    """From an admin session, wait until a backend matching predicate_sql shows up,
+    then pg_cancel_backend it. Returns the cancelled pid."""
+    import time
+    deadline = time.monotonic() + timeout_s
+    with admin() as a:
+        while time.monotonic() < deadline:
+            row = a.execute(f"SELECT pid FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND {predicate_sql}",
+                            params).fetchone()
+            if row:
+                a.execute("SELECT pg_cancel_backend(%s)", (row[0],))
+                return row[0]
+            time.sleep(0.05)
+    raise AssertionError("the backend to cancel never appeared")
+
+
+def test_timed_out_rule():
+    canceled = pgerr.QueryCanceled("canceling statement")
+    assert db._timed_out(canceled, None, 1000)          # unknown elapsed: assume the timeout
+    assert db._timed_out(canceled, 1000.0, 1000)
+    assert not db._timed_out(canceled, 999.0, 1000)
+    assert not db._timed_out(pgerr.SyntaxError("x"), 5000.0, 1000)
+
+
+@pytest.mark.db
+def test_a_cancel_from_another_session_is_not_called_a_timeout():
+    """Regression: every QueryCanceled used to be reported as statement_timeout."""
+    import threading
+    t = threading.Thread(target=_cancel_when_waiting,
+                         args=("query LIKE %s AND state = 'active'", ("%pg_sleep(5)%",)))
+    t.start()
+    with pytest.raises(ToolError, match="cancelled by another session") as err:
+        read_one("SELECT pg_sleep(5)")
+    t.join()
+    assert "statement_timeout" not in str(err.value)
+
+
+@pytest.mark.db
+def test_a_cancelled_index_build_is_not_called_a_timeout(scratch, monkeypatch):
+    """The build waits on a held lock; another session cancels it before any limit."""
+    import threading
+    monkeypatch.setattr(config, "WRITE_LOCK_TIMEOUT_MS", 15000)
+    with psycopg.connect(config.DBA_DSN) as holder:
+        holder.execute(f"LOCK TABLE {scratch} IN ACCESS EXCLUSIVE MODE")
+        t = threading.Thread(target=_cancel_when_waiting,
+                             args=("usename = 'pokedex_dba' AND wait_event_type = 'Lock'", ()))
+        t.start()
+        with pytest.raises(ToolError, match="index build was cancelled by another session"):
+            db.create_index(f"CREATE INDEX zz_pytest_v ON {scratch} (v)")
+        t.join()
+        holder.rollback()

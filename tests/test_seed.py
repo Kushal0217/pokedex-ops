@@ -249,15 +249,24 @@ def test_reset_query_stats_empties_pg_stat_statements():
 
     from server import config
 
+    sql = "SELECT count(*) FROM types"
     with psycopg.connect(config.ADMIN_DSN, autocommit=True) as conn:
-        def marker_count() -> int:
-            return conn.execute("SELECT count(*) FROM pg_stat_statements WHERE query LIKE %s",
-                                ("%zz_pytest_marker%",)).fetchone()[0]
+        # Look the statement up by its query id, not its text. pg_stat_statements keeps
+        # the text of the first query with a given shape (aliases don't count), so on a
+        # long-used database a marker alias in the text was never stored and the old
+        # lookup found nothing. EXPLAIN (VERBOSE) prints the id.
+        plan = "\n".join(r[0] for r in conn.execute(f"EXPLAIN (VERBOSE, COSTS OFF) {sql}").fetchall())
+        query_id = int(next(line for line in plan.splitlines()
+                            if "Query Identifier:" in line).split(":")[1])
 
-        conn.execute("SELECT count(*) AS zz_pytest_marker FROM types")
-        assert marker_count() >= 1
+        def calls() -> int:
+            return conn.execute("SELECT count(*) FROM pg_stat_statements WHERE queryid = %s",
+                                (query_id,)).fetchone()[0]
+
+        conn.execute(sql)
+        assert calls() >= 1
         seed.reset_query_stats()
-        assert marker_count() == 0
+        assert calls() == 0
 
 
 @pytest.mark.db

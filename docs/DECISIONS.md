@@ -679,3 +679,51 @@ and a later `propose_index` reported a cost of 32,364 instead of about 8. Now
 failing with its behaviour broken (D21). The reviewer found the hidden-index
 leak and that one test passed without the tool's own reset. The orchestrator
 fixed both and showed each new test failing without its fix.
+
+## D25. Four open-item fixes, and the lost task set (2026-11-13)
+
+**A timeout and a cancel by another session were reported the same way.**
+- **Bug.** Our `statement_timeout` and a `pg_cancel_backend` from another
+  session raise the same error (57014). `db._tool_error` called both a
+  timeout and advised "use EXPLAIN without ANALYZE". So did the write path.
+- **Fix.** The same rule `explain_query` already used: elapsed time. A
+  timeout can only fire once the limit has passed.
+  - **The read path's `Cursor`** times each statement.
+  - **The write path** times the build.
+  - **A cancel that comes sooner** says "cancelled by another session ...
+    check before running it again".
+  - **Message text isn't matched,** because Postgres may translate it.
+  - **When the elapsed time is unknown,** it still counts as a timeout.
+- **Also fixed.** When `explain_query`'s fallback (plain EXPLAIN) also hit
+  the timeout, the advice was to run plain EXPLAIN, which had just failed. It
+  now says that planning alone is that slow, and to simplify the query.
+- **Tests.** Four new tests, all shown failing on the old code:
+  - **a unit test** of the rule;
+  - **a real `pg_cancel_backend`** of a running read;
+  - **a real cancel** of an index build waiting on a held lock;
+  - **the fallback timing out** (monkeypatched, no database).
+
+**A statistics test failed on a long-used database.**
+`test_reset_query_stats_empties_pg_stat_statements` looked its query up by a
+marker alias in the text. But pg_stat_statements keeps the text of the
+*first* query of each shape, and aliases don't change the shape, so after
+`SELECT count(*) FROM types` had run once, the marker was never stored.
+- **Reproduced:** reset, run that query once, then the test failed.
+- **Fix:** look the query up by its `queryid`, read from `EXPLAIN (VERBOSE)`.
+- **Checked:** it passes in the state that broke it, and still fails if the
+  reset does nothing.
+
+**CI.** `actions/checkout@v5` and `actions/setup-python@v6` replace the
+deprecated Node 20 versions.
+
+**Docker start-up.** After a session restart, a leftover
+`/var/run/docker.pid` can name a PID now used by another process, so dockerd
+refuses to start. The CLAUDE.md command now removes the pid file when no
+dockerd is running.
+
+**The lost task set.** The orchestration log records the `task-author`
+writing and validating 12 dev and 12 heldout tasks on 2026-11-11, with "see
+the tasks PR". No such PR or branch exists, and the user doesn't have the
+files. So they're lost. Step 3 writes the task set again.
+- **The lesson for orchestrated work:** commit and push a worker's output in
+  the same session that produced it, before reporting it as done.

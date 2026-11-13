@@ -205,8 +205,19 @@ def explain_query(sql: str) -> dict[str, Any]:
         if not timed_out:
             raise
     seconds = config.STATEMENT_TIMEOUT_MS / 1000
+    try:
+        plan = _explain(body, "")
+    except ToolError as err:
+        # The usual advice ("use EXPLAIN without ANALYZE") is what just failed.
+        if isinstance(err.__cause__, psycopg.errors.QueryCanceled) and "statement_timeout" in str(err):
+            raise ToolError(
+                f"EXPLAIN ANALYZE took longer than {seconds:g} s (statement_timeout), and so did plain "
+                "EXPLAIN, which only plans the query and runs nothing. Planning alone is that slow, so "
+                "simplify the query (fewer joins or subqueries) and try again."
+            ) from err.__cause__
+        raise
     return {
-        "plan": _explain(body, ""),
+        "plan": plan,
         "analyzed": False,
         "note": (f"EXPLAIN ANALYZE was cancelled after {seconds:g} s (statement_timeout), so this plan "
                  "has estimates only: no actual rows, times or buffers."),

@@ -5,7 +5,7 @@ Update this file in the same PR as the work it describes. The reasons behind
 choices live in [DECISIONS.md](DECISIONS.md); the design is in
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-_Last updated: 2026-11-11._
+_Last updated: 2026-11-13._
 
 ## Build order
 
@@ -34,9 +34,9 @@ Steps from ARCHITECTURE.md, "Build order".
 | `.claude/skills/pokedex-ops/` | stub | none |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 331 tests, all passing locally with the database running. CI
-runs all of them in two jobs: `test` (`pytest -m "not db"`, 224 tests) and
-`db-test` (the 107 database tests against a freshly built image). Locally, the database tests
+Test suite: 335 tests, all passing locally with the database running. CI
+runs all of them in two jobs: `test` (`pytest -m "not db"`, 226 tests) and
+`db-test` (the 109 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -264,12 +264,11 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 - [ ] **The heldout rule for subagents is an instruction only** (D18). Add a
   hook that blocks reads of `tasks/heldout/` if the orchestration log shows
   a breach.
-- [ ] **Every `QueryCanceled` is reported as a statement_timeout** by
-  `db._tool_error`, including a cancel from another session, and its advice
-  ("use EXPLAIN without ANALYZE") is wrong when explain_query's plain
-  fallback itself times out. Rare; found in the D20 review.
-- [ ] **`test_reset_query_stats_empties_pg_stat_statements` can fail on a
-  long-used local database.** pg_stat_statements groups queries by shape and
+- [x] **Every `QueryCanceled` was reported as a statement_timeout.** Fixed
+  in D25: a cancel from another session now says so, on the read and write
+  paths, and explain_query's fallback timing out gets fitting advice.
+- [x] **`test_reset_query_stats_empties_pg_stat_statements` could fail on a
+  long-used local database.** Fixed in D25 (looked up by query id). pg_stat_statements groups queries by shape and
   ignores column aliases, so if `SELECT count(*) FROM types` ran earlier, the
   test's marker alias is never stored. CI seeds a fresh database and passes.
   Since PR #18 it also passes locally in a full run, but only because a
@@ -285,17 +284,17 @@ full-scale database, 41 tests in `tests/test_tools.py`:
   `answers:` list per task) that the runner sends back with `--resume`. Open
   points: on guardrail tasks asking is the right behaviour, and matching a
   free-text question needs a rule, not an LLM judge. Decide in step 4.
-- [ ] **GitHub Actions warns that Node 20 is deprecated** for
-  `actions/checkout@v4` and `actions/setup-python@v5`, which are forced onto
-  Node 24 for now. Nothing fails. Fix: move to newer major versions of both
-  actions.
+- [x] **GitHub Actions warned that Node 20 is deprecated.** Moved to
+  `actions/checkout@v5` and `actions/setup-python@v6` (D25).
 
 ## Next
 
 Step 2 is done: all six tools work and are tested. Next is step 3: the
 v1 tool descriptions (a plain first draft, not tuned), the skill's
-`SKILL.md` and `reference/tools.md`, and the eval task set (12 dev tasks are
-written; the held-out set waits for a decision, see the tasks PR). Then
+`SKILL.md` and `reference/tools.md`, and the eval task set. The 12 dev and 12
+heldout tasks written on 2026-11-11 (see `docs/orchestration-log.md`) were
+never committed or pushed, and are lost (D25); the task set has to be written
+again, and the heldout decision recorded with it. Then
 step 4: the eval runner, after a measured `claude -p` trial. Build them with the orchestrator setup (D18) and record each
 delegation in `docs/orchestration-log.md`. The three done so far aren't in
 the skill's `reference/tools.md` yet; that's part of step 3.

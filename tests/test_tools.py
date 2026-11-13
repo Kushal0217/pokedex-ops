@@ -686,3 +686,21 @@ def test_check_health_one_failing_section_does_not_hide_the_others(monkeypatch):
     r = tools.check_health()
     assert "nope" in r["cache_hit_pct"]["error"]
     assert r["replication"] == "no replica configured" and isinstance(r["tables"], list)
+
+
+# --------------------------------------------------------------------------- explain_query: fallback that also times out
+
+def test_explain_fallback_that_also_times_out_gives_fitting_advice(monkeypatch):
+    """Regression: when plain EXPLAIN (the fallback) also hit statement_timeout, the error
+    advised running plain EXPLAIN, which is what had just failed. No database needed."""
+    def timing_out(body, options):
+        cause = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        try:
+            raise db._tool_error(cause, elapsed_ms=None) from cause
+        except ToolError as err:
+            raise err
+    monkeypatch.setattr(tools, "_explain", timing_out)
+    monkeypatch.setattr(config, "STATEMENT_TIMEOUT_MS", 0)   # any elapsed time counts as the timeout
+    with pytest.raises(ToolError, match="so did plain EXPLAIN") as err:
+        tools.explain_query("SELECT * FROM pokemon")
+    assert "without ANALYZE" not in str(err.value)

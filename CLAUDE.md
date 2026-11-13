@@ -34,7 +34,7 @@ process stops while the session is idle between turns (DECISIONS D14), so
 start Docker and the database again in any turn that needs them:
 
 ```sh
-pgrep dockerd >/dev/null || (setsid nohup dockerd >/tmp/dockerd.log 2>&1 < /dev/null &)
+pgrep dockerd >/dev/null || { rm -f /var/run/docker.pid; (setsid nohup dockerd >/tmp/dockerd.log 2>&1 < /dev/null &); }  # a pid file left from before the restart blocks startup
 timeout 60 sh -c 'until docker info >/dev/null 2>&1; do sleep 1; done' \
   || { echo "Docker didn't start"; tail -5 /tmp/dockerd.log; }   # can take more than 3 s; never wait forever
 scripts/build_db_image.sh        # only if the image isn't built yet; plain `docker compose build` on a laptop

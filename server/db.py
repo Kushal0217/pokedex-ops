@@ -115,13 +115,32 @@ def _checkout(pool: ConnectionPool, setup: Callable[[psycopg.Connection], None])
 
 # --------------------------------------------------------------------------- errors
 
-def _tool_error(e: psycopg.Error, timeout_ms: int | None = None, position_offset: int = 0) -> ToolError:
-    """Turn a database error into a message the agent can act on."""
+_CANCELLED_BY_OTHERS = (
+    "The query was cancelled by another session (for example pg_cancel_backend), "
+    "not by the time limit. Someone may have wanted it stopped; check before running it again."
+)
+
+
+def _timed_out(e: psycopg.Error, elapsed_ms: float | None, limit_ms: int) -> bool:
+    """Was this QueryCanceled our own statement_timeout? Our timeout and a cancel from
+    another session raise the same error (57014). Telling them apart by elapsed time,
+    as explain_query does, avoids matching message text, which Postgres may translate:
+    a timeout can only fire once the limit has passed. Unknown elapsed time counts as
+    a timeout, the common case."""
+    return isinstance(e, pgerr.QueryCanceled) and (elapsed_ms is None or elapsed_ms >= limit_ms)
+
+
+def _tool_error(e: psycopg.Error, timeout_ms: int | None = None, position_offset: int = 0,
+                elapsed_ms: float | None = None) -> ToolError:
+    """Turn a database error into a message the agent can act on. `elapsed_ms`: how long
+    the failing statement ran, which tells a timeout from a cancel by another session."""
     if isinstance(e, pgerr.QueryCanceled):
-        limit = f" after {(timeout_ms or config.STATEMENT_TIMEOUT_MS) / 1000:g} s"
+        limit_ms = timeout_ms or config.STATEMENT_TIMEOUT_MS
+        if not _timed_out(e, elapsed_ms, limit_ms):
+            return ToolError(_CANCELLED_BY_OTHERS)
         return ToolError(
-            f"The query was cancelled{limit} (statement_timeout). Narrow it with a WHERE clause "
-            "or LIMIT, or look at the plan with EXPLAIN (without ANALYZE), which does not run it."
+            f"The query was cancelled after {limit_ms / 1000:g} s (statement_timeout). Narrow it with "
+            "a WHERE clause or LIMIT, or look at the plan with EXPLAIN (without ANALYZE), which does not run it."
         )
     diag = e.diag
     primary = diag.message_primary or str(e).strip()
@@ -152,14 +171,19 @@ class Cursor:
     """The only cursor tools get on the read path. Every execute is a server-side
     prepared statement, so Postgres itself refuses more than one statement."""
 
-    __slots__ = ("_cur",)
+    __slots__ = ("_cur", "_started")
 
     def __init__(self, cur: psycopg.Cursor) -> None:
         self._cur = cur
+        self._started: float | None = None
 
     def execute(self, sql: str, params: Sequence[Any] | None = None) -> Cursor:
+        self._started = time.monotonic()  # tells a timeout from another session's cancel
         self._cur.execute(sql, params, prepare=True)
         return self
+
+    def _elapsed_ms(self) -> float | None:
+        return None if self._started is None else (time.monotonic() - self._started) * 1000
 
     def fetchone(self) -> tuple[Any, ...] | None:
         return self._cur.fetchone()
@@ -203,10 +227,12 @@ def read_only(position_offset: int = 0) -> Iterator[Cursor]:
     conn = _checkout(pool, _begin_read)
     try:
         with conn.cursor() as cur:
+            wrapped = Cursor(cur)
             try:
-                yield Cursor(cur)
+                yield wrapped
             except psycopg.Error as e:
-                raise _tool_error(e, position_offset=position_offset) from e
+                raise _tool_error(e, position_offset=position_offset,
+                                  elapsed_ms=wrapped._elapsed_ms()) from e
     finally:
         if not conn.broken:
             try:
@@ -263,7 +289,7 @@ def create_index(sql: str) -> dict[str, Any]:
         try:
             conn.execute(sql, prepare=True)
         except psycopg.Error as e:
-            raise _write_error(e, conn, verdict) from e
+            raise _write_error(e, conn, verdict, (time.monotonic() - started) * 1000) from e
         return {
             "table": verdict.table,
             "concurrently": verdict.concurrently,
@@ -273,7 +299,8 @@ def create_index(sql: str) -> dict[str, Any]:
         _release(pool, conn)
 
 
-def _write_error(e: psycopg.Error, conn: psycopg.Connection, verdict: sqlguard.Verdict) -> ToolError:
+def _write_error(e: psycopg.Error, conn: psycopg.Connection, verdict: sqlguard.Verdict,
+                 elapsed_ms: float | None = None) -> ToolError:
     table = verdict.table or "the table"
     if conn.broken:
         return ToolError(
@@ -284,6 +311,9 @@ def _write_error(e: psycopg.Error, conn: psycopg.Connection, verdict: sqlguard.V
         msg = (f"Could not get a lock on {table} within {config.WRITE_LOCK_TIMEOUT_MS / 1000:g} s: "
                "another session holds a conflicting lock. Look for blocking sessions with "
                "check_health, then try again.")
+    elif isinstance(e, pgerr.QueryCanceled) and not _timed_out(
+            e, elapsed_ms, config.WRITE_STATEMENT_TIMEOUT_MS):
+        msg = _CANCELLED_BY_OTHERS.replace("The query", "The index build")
     elif isinstance(e, pgerr.QueryCanceled):
         msg = (f"The index build exceeded {config.WRITE_STATEMENT_TIMEOUT_MS / 1000:g} s "
                "(statement_timeout) and was cancelled.")
