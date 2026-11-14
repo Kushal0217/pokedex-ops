@@ -16,7 +16,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
-| 4 | Baseline eval with v1, recorded honestly | not started |
+| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial next |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
 
@@ -30,13 +30,13 @@ Steps from ARCHITECTURE.md, "Build order".
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors, hypopg state cleared on each read checkout | `tests/test_db.py`, 26 cases (25 need the database) |
 | `server/tools.py` | all six tools implemented | `tests/test_tools.py`, 92 cases (77 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
-| `scripts/eval.py` | stub | none |
+| `scripts/eval.py` | implemented: `claude -p` runner, code-only grading, verified reset, resumable runs, usage guard (D29) | `tests/test_eval.py`, `tests/test_eval_runner.py` |
 | `skills/v1/`, `.claude/skills/pokedex-ops/` | v1 skill: workflow, guardrails, tool reference; the loaded copy equals the newest version (D27) | `tests/test_scaffold.py` |
 | `tasks/dev`, `tasks/heldout` | 12 dev and 12 held-out tasks (`h01`-`h12`), validated with psql and hypopg (D26) | YAML parse and id checks by the task-author |
 
-Test suite: 336 tests, all passing locally with the database running. CI
-runs all of them in two jobs: `test` (`pytest -m "not db"`, 226 tests) and
-`db-test` (the 109 database tests against a freshly built image). Locally, the database tests
+Test suite: 418 tests, all passing locally with the database running. CI
+runs all of them in two jobs: `test` (`pytest -m "not db"`, 298 tests) and
+`db-test` (the 120 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
 
 ## Verified
@@ -288,10 +288,20 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-Step 3 is done: the v1 descriptions and skill (D27) and the task set
-(D26). Next is step 4: the eval runner, after a measured `claude -p` trial
-(see the probe under Verified, and the runner notes in D26). Build with the orchestrator
-setup (D18) and record each delegation in `docs/orchestration-log.md`.
+The eval runner is built and reviewed (D29). Next: the measured trial, 2 dev
+tasks with 1 trial each (`python scripts/eval.py --split dev --tasks <a>,<b>
+--run trial-1`). It checks for real what only fakes have tested (prompt on
+stdin, `Skill(pokedex-ops)`, `--resume`), and measures usage per trial. Then
+the user picks the trial count for the v1 baseline. Start it from a fresh
+session to save usage.
+
+## Open items (added 2026-11-14)
+
+- [ ] **`test_explain_query_does_not_fall_back_when_another_session_cancels`**
+  failed once in a full run and passed on every rerun (seen by the
+  implementer). Timing-sensitive; unrelated to the runner.
+- [ ] **A resumed run's usage guard has no data until its first new trial**,
+  because rate-limit state isn't carried over from earlier trial files.
 
 ## History
 

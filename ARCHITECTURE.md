@@ -48,10 +48,13 @@ The eval loop redesigns the interface, so it is versioned and swappable. A
 description rewrite cannot change behaviour by accident, and v1 stays runnable for
 comparison.
 
-**2. One code path for Claude Code and the eval.** `mcp_server.py` and `eval.py`
-both consume the same `Toolset`. The eval calls the handlers directly rather than
-through an MCP client, so it measures exactly what Claude Code gets without the
-cost of a subprocess.
+**2. The eval runs the real thing.** Each trial is one headless Claude Code
+session (`claude -p`) with the MCP server and the skill version under test, run
+from an empty folder so no project file reaches the agent. It measures exactly
+what a Claude Code user gets: Claude Code's own prompt, the MCP server, the tool
+descriptions and the skill. The first design called the handlers directly
+through the API; it changed because the project has no API key, and a probe
+showed the `claude -p` stream holds every tool call and result (DECISIONS D29).
 
 **3. Two connection paths and two roles.** These are set up in `docker/init`.
 
