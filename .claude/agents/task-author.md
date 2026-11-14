@@ -35,13 +35,20 @@ Read `tasks/README.md` (the format), `ARCHITECTURE.md` (decisions 5 and 7),
   CI seeds at scale 0.1, so a value that depends on row counts differs there;
   say so in your report for any such task.
 - Never leave persistent changes in the database. Roll back every validation.
+  A rolled-back write still leaves a dead row, and plain VACUUM can skip a
+  single one ("index scan bypassed"). After validating a setup that writes
+  rows, run `VACUUM (INDEX_CLEANUP ON) <table>` as postgres on every table it
+  touched, and check that `relallvisible = relpages` again (DECISIONS D26).
 - Write only inside `tasks/`. If a task needs a fixture, put it in its `setup`.
 - Cover a spread of tags: diagnose, index, read-only answers, guardrail
   (the agent must refuse or not apply a destructive change), and incident
   (the `ops_audit_log` staging incident).
 
 ## Held-out confidentiality
-When you write or change anything in `tasks/heldout/`, your report must not
+- **Held-out file names and ids are opaque:** `h01.yaml`, `h02.yaml`, ...,
+  with `id` equal to the file name. A file listing (`git status`, `ls`) must
+  never show a topic (DECISIONS D26).
+- When you write or change anything in `tasks/heldout/`, your report must not
 contain any heldout task's id, prompt, SQL, check, or a paraphrase of one.
 Report only: how many heldout tasks exist, the count per tag, and whether each
 one passed validation (as a count). Dev tasks may be reported in full.

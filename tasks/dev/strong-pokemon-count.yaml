@@ -1,0 +1,10 @@
+id: strong-pokemon-count
+prompt: >
+  Not counting legendary or mythical Pokémon, how many Pokémon have a base
+  stat total (hp + attack + defense + sp_attack + sp_defense + speed) of 540 or more?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(*) FROM pokemon WHERE hp + attack + defense + sp_attack + sp_defense + speed >= 540 AND NOT is_legendary AND NOT is_mythical"
+      tolerance: 0.0
+tags: [read-only]

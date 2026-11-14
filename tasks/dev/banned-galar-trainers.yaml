@@ -1,0 +1,9 @@
+id: banned-galar-trainers
+prompt: >
+  How many banned trainers are registered in the galar region?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(*) FROM trainers WHERE is_banned AND region = 'galar'"
+      tolerance: 0.0
+tags: [read-only]

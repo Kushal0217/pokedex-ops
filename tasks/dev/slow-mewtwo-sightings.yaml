@@ -1,0 +1,10 @@
+id: slow-mewtwo-sightings
+prompt: >
+  The "where has this Pokémon been seen" page times out for popular Pokémon.
+  For Mewtwo (#150) it runs
+  SELECT trainer_id, location, encountered_at FROM encounters WHERE pokemon_id = 150 AND level >= 95.
+  Can you speed it up?
+checks:
+  - tool_called: propose_index
+  - index_exists: {table: encounters, leading_columns: [pokemon_id]}
+tags: [index, diagnose]
