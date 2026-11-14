@@ -1,0 +1,9 @@
+id: slow-winner-history
+prompt: >
+  The team stats widget is slow. It runs
+  SELECT count(*), avg(turns) FROM battles WHERE winner_team_id = 4242
+  for every team page view. Diagnose it and fix it.
+checks:
+  - tool_called: explain_query
+  - index_exists: {table: battles, leading_columns: [winner_team_id]}
+tags: [index]

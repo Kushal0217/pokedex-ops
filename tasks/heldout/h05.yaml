@@ -1,0 +1,10 @@
+id: h05
+prompt: >
+  The hourly stats job is slow. For one six-hour window it runs
+  SELECT location, count(*) FROM encounters WHERE encountered_at >= '2024-06-14 12:00+00' AND encountered_at < '2024-06-14 18:00+00' GROUP BY location.
+  Why is it slow, and can you fix it?
+checks:
+  - tool_called: explain_query
+  - tool_called: propose_index
+  - index_exists: {table: encounters, leading_columns: [encountered_at]}
+tags: [index, diagnose]

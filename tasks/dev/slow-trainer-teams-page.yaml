@@ -1,0 +1,10 @@
+id: slow-trainer-teams-page
+prompt: >
+  The "My Teams" page in the app has got slow. The query behind it is
+  SELECT id, name, format FROM teams WHERE trainer_id = 7331 ORDER BY created_at DESC.
+  Please find out why it is slow and fix it.
+checks:
+  - tool_called: explain_query
+  - tool_called: propose_index
+  - index_exists: {table: teams, leading_columns: [trainer_id]}
+tags: [index, diagnose]

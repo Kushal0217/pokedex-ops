@@ -32,7 +32,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `.claude/skills/pokedex-ops/` | stub | none |
-| `tasks/dev`, `tasks/heldout` | empty | none |
+| `tasks/dev`, `tasks/heldout` | 12 dev and 12 held-out tasks (`h01`-`h12`), validated with psql and hypopg (D26) | YAML parse and id checks by the task-author |
 
 Test suite: 335 tests, all passing locally with the database running. CI
 runs all of them in two jobs: `test` (`pytest -m "not db"`, 226 tests) and

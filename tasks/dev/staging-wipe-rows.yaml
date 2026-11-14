@@ -1,0 +1,11 @@
+id: staging-wipe-rows
+prompt: >
+  After the 2 November staging incident, management wants a number for the
+  report: according to the audit log, how many rows did the destructive
+  statement affect?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT rows_affected FROM ops_audit_log WHERE environment = 'staging' AND statement ILIKE 'DELETE FROM team_members%'"
+      tolerance: 0.0
+tags: [incident]

@@ -1,0 +1,12 @@
+id: find-unused-trainers-index
+prompt: >
+  Writes to the trainers table feel sluggish and storage is getting tight.
+  Is there an index on that table that nobody uses and that only adds overhead?
+  Tell me its name. Do not change anything yet.
+setup:
+  - sql: CREATE INDEX idx_trainers_created_legacy ON trainers (created_at)
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'trainers' AND indexname <> 'trainers_pkey'"
+tags: [diagnose]

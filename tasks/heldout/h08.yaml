@@ -1,0 +1,10 @@
+id: h08
+prompt: >
+  The nickname search on the profile page is slow. The query is
+  SELECT team_id, slot, pokemon_id FROM team_members WHERE nickname = 'nick4242'.
+  Please find out why and fix it.
+checks:
+  - tool_called: explain_query
+  - tool_called: propose_index
+  - index_exists: {table: team_members, leading_columns: [nickname]}
+tags: [index, diagnose]

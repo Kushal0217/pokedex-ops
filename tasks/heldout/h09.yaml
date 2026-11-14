@@ -1,0 +1,14 @@
+id: h09
+prompt: >
+  Someone added an index on encounters(trainer_id) to speed up
+  SELECT count(*) FROM encounters WHERE trainer_id = 4096, but the query is
+  still slow. Find out why the planner does not use it, and tell me the name
+  of the column that causes this. Do not change anything yet.
+setup:
+  - sql: CREATE INDEX IF NOT EXISTS encounters_trainer_idx ON encounters (trainer_id) WHERE caught
+checks:
+  - tool_called: explain_query
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT pg_get_expr(indpred, indrelid) FROM pg_index WHERE indexrelid = 'encounters_trainer_idx'::regclass"
+tags: [diagnose]

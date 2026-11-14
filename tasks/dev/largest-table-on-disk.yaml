@@ -1,0 +1,9 @@
+id: largest-table-on-disk
+prompt: >
+  We are running low on disk. Which table in the database takes up the most
+  space, including its indexes?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace ORDER BY pg_total_relation_size(oid) DESC LIMIT 1"
+tags: [diagnose]
