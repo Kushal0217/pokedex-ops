@@ -362,7 +362,10 @@ def test_reset_time_uses_the_local_timezone(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Tokyo")
     time.tzset()
     try:
-        assert "JST" in ev.usage_stop_reason(rate(five=0.95), 0.9, 0.8, "N")
+        from datetime import timezone
+        from zoneinfo import ZoneInfo
+        want = datetime.fromtimestamp(1794633600, timezone.utc).astimezone(ZoneInfo("Asia/Tokyo"))
+        assert want.strftime("%Y-%m-%d %H:%M JST") in ev.usage_stop_reason(rate(five=0.95), 0.9, 0.8, "N")
     finally:
         monkeypatch.undo()
         time.tzset()
