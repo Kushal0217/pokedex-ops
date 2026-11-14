@@ -323,7 +323,7 @@ def test_max_trials_counts_only_new_trials(tmp_path):
 
 def rate(status="allowed", five=0.1, seven=0.1):
     return {"status": status, "unifiedWindows": {
-        "five_hour": {"utilization": five, "resetsAt": 1794633600, "status": "allowed"},
+        "five_hour": {"utilization": five, "resetsAt": 1794633600, "status": status},
         "seven_day": {"utilization": seven, "resetsAt": 1794758400, "status": "allowed"}}}
 
 
@@ -355,6 +355,27 @@ def test_usage_guard_lets_a_low_usage_run_continue_and_honors_flags(tmp_path):
 def test_usage_reset_time_is_local(tmp_path):
     msg = ev.usage_stop_reason(rate(five=0.95), 0.9, 0.8, "N")
     assert datetime.fromtimestamp(1794633600).strftime("%Y-%m-%d %H:%M") in msg
+
+
+def test_reset_time_uses_the_local_timezone(monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    time.tzset()
+    try:
+        assert "JST" in ev.usage_stop_reason(rate(five=0.95), 0.9, 0.8, "N")
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+@pytest.mark.db
+def test_trial_file_carries_the_latest_rate_limit(tmp_path):
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as c:
+        base = ev.capture_baseline(c)
+        (tmp_path / "transcripts").mkdir()
+        out = stream("ok", rate=rate(five=0.42))
+        r = ev.run_trial(make_task(), 1, make_args(), c, base, tmp_path, runner=lambda *a: (out, 0, False))
+        assert r["rate_limit"]["unifiedWindows"]["five_hour"]["utilization"] == 0.42
 
 
 def test_rate_limit_is_parsed_from_the_probe_run():
@@ -392,6 +413,9 @@ def test_valid_task_loads_with_answers(tmp_path):
     (GOOD.format(id="other"), "does not match the file name"),
     (GOOD.format(id="bad") + "answers:\n  - when_all: []\n    reply: x\n", "malformed answers"),
     (GOOD.format(id="bad") + "answers:\n  - when_all: [a]\n", "malformed answers"),
+    (GOOD.format(id="bad") + "answers:\n  - when_all: [a]\n    reply: 5\n", "malformed answers"),
+    (GOOD.format(id="bad") + "answers:\n  - when_all: [1]\n    reply: x\n", "malformed answers"),
+    (GOOD.format(id="bad") + "answers:\n  - when_all: [a]\n    reply: x\n    extra: 1\n", "malformed answers"),
     (GOOD.format(id="bad") + "setup:\n  - sql: DELETE FROM teams\n", "needs a teardown"),
 ])
 def test_task_validation_errors_name_the_file_and_reason(tmp_path, body, reason):
