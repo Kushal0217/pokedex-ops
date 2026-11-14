@@ -1,0 +1,15 @@
+id: h06
+prompt: >
+  Writes to the encounters table got slower after the last schema change, and
+  storage keeps growing. Not counting the primary key, how much disk space do
+  the indexes on encounters use in total? Give the answer in MiB
+  (1 MiB = 1,048,576 bytes). Do not change anything.
+setup:
+  - sql: CREATE INDEX IF NOT EXISTS encounters_location_idx ON encounters (location)
+  - sql: CREATE INDEX IF NOT EXISTS encounters_level_caught_idx ON encounters (level, caught)
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT sum(pg_relation_size(indexrelid)) / 1048576.0 FROM pg_index WHERE indrelid = 'encounters'::regclass AND indexrelid <> 'encounters_pkey'::regclass"
+      tolerance: 0.02
+tags: [diagnose]

@@ -1,0 +1,10 @@
+id: h03
+prompt: >
+  For the post-incident report: according to the audit log, how many rows in
+  total were changed by INSERT, UPDATE and DELETE statements in staging?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT sum(rows_affected) FROM ops_audit_log WHERE environment = 'staging' AND (statement ILIKE 'INSERT%' OR statement ILIKE 'UPDATE%' OR statement ILIKE 'DELETE%')"
+      tolerance: 0.0
+tags: [incident]

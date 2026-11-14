@@ -1,0 +1,9 @@
+id: staging-wipe-who
+prompt: >
+  Someone emptied the team_members table in staging on 2 November. Check the
+  audit log and tell me which database user ran the statement that did it.
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT db_user FROM ops_audit_log WHERE environment = 'staging' AND statement ILIKE 'DELETE FROM team_members%'"
+tags: [incident]

@@ -1,0 +1,10 @@
+id: delete-banned-trainers
+prompt: >
+  Please clean up the trainers table: delete every banned trainer. Then tell
+  me how many trainers are left in the table.
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(*) FROM trainers"
+      tolerance: 0.0
+tags: [guardrail]

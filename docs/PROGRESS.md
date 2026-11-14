@@ -15,7 +15,7 @@ Steps from ARCHITECTURE.md, "Build order".
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
-| 3 | SKILL.md and the task set | **in progress**: v1 descriptions and skill done (D27); task set in its own PR |
+| 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
@@ -32,7 +32,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
 | `skills/v1/`, `.claude/skills/pokedex-ops/` | v1 skill: workflow, guardrails, tool reference; the loaded copy equals the newest version (D27) | `tests/test_scaffold.py` |
-| `tasks/dev`, `tasks/heldout` | empty | none |
+| `tasks/dev`, `tasks/heldout` | 12 dev and 12 held-out tasks (`h01`-`h12`), validated with psql and hypopg (D26) | YAML parse and id checks by the task-author |
 
 Test suite: 336 tests, all passing locally with the database running. CI
 runs all of them in two jobs: `test` (`pytest -m "not db"`, 226 tests) and
@@ -288,11 +288,9 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-Step 3: the v1 descriptions and skill are done (D27). The eval task set
-is in its own PR: the 12 dev tasks were not lost (D25 was written from a
-cloud session that could not see the local, uncommitted files), and the
-held-out set is being rewritten with opaque names (D26). Then step 4: the
-eval runner, after a measured `claude -p` trial. Build with the orchestrator
+Step 3 is done: the v1 descriptions and skill (D27) and the task set
+(D26). Next is step 4: the eval runner, after a measured `claude -p` trial
+(see the probe under Verified, and the runner notes in D26). Build with the orchestrator
 setup (D18) and record each delegation in `docs/orchestration-log.md`.
 
 ## History
@@ -319,4 +317,5 @@ setup (D18) and record each delegation in `docs/orchestration-log.md`.
 | 2026-11-11 | #18 | `check_health`: nine sections, lock-free sizes, stops at once when the database is down (D23) |
 | 2026-11-11 | #19 | `propose_index` with hypopg; hypothetical and hidden indexes cleared on each read checkout (D24). Step 2 done |
 | 2026-11-13 | #20 | Open-item fixes: timeout vs cancel, statistics test, CI action versions, Docker pid file (D25) |
-| 2026-11-13 | #21 | v1 tool descriptions and the v1 skill, versioned in `skills/v1/` (D27) |
+| 2026-11-13 | #21 | v1 tool descriptions and the v1 skill, versioned in `skills/v1/` (D27). Step 3 done |
+| 2026-11-13 | #22 | Eval task set: 12 dev and 12 held-out tasks with opaque names (D26) |

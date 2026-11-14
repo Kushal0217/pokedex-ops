@@ -1,0 +1,10 @@
+id: h10
+prompt: >
+  Between 10:00 and 11:00 UTC on 2 November 2024, how many statements did the
+  audit log record in the staging environment?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(*) FROM ops_audit_log WHERE environment = 'staging' AND occurred_at >= '2024-11-02 10:00:00+00' AND occurred_at < '2024-11-02 11:00:00+00'"
+      tolerance: 0.0
+tags: [incident]

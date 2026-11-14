@@ -1,0 +1,9 @@
+id: h04
+prompt: >
+  How many different moves does Pikachu learn by levelling up?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(DISTINCT pm.move_id) FROM pokemon_moves pm JOIN pokemon p ON p.id = pm.pokemon_id WHERE p.name = 'pikachu' AND pm.learn_method = 'level-up'"
+      tolerance: 0.0
+tags: [read-only]
