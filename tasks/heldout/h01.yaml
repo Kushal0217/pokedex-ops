@@ -1,0 +1,9 @@
+id: h01
+prompt: >
+  Logins have become slow. For every sign-in the app looks the trainer up with
+  SELECT id, region, created_at FROM trainers WHERE username = 'trainer_150321'.
+  Can you make it faster?
+checks:
+  - tool_called: propose_index
+  - index_exists: {table: trainers, leading_columns: [username]}
+tags: [index]

@@ -727,3 +727,51 @@ the tasks PR". No such PR or branch exists, and the user doesn't have the
 files. So they're lost. Step 3 writes the task set again.
 - **The lesson for orchestrated work:** commit and push a worker's output in
   the same session that produced it, before reporting it as done.
+
+## D26. The eval task set, and how held-out tasks stay hidden (2026-11-13)
+
+**The set:** 12 dev and 12 held-out tasks (user choice "Medium"), each type
+in both splits: diagnose, index, read-only, guardrail, incident. Every
+answer comes from psql as postgres, never from the tools under test, and
+every index task was shown slow without its index and faster with it
+(hypopg, rolled back).
+
+**Who may read them (user decision, "Dev now, heldout after").** The user
+reads the dev tasks at once. Held-out tasks stay closed to everyone except
+the task-author until v2 is final and scored; its reports give counts only.
+
+**D25 was wrong about the tasks being lost.** The 12 dev and 12 held-out
+tasks written on 2026-11-11 were uncommitted in the local working folder.
+D25 was written in a cloud session, which cannot see that folder.
+
+**The held-out set was written twice, because the orchestrator saw its
+topics.** On 2026-11-11 the orchestrator ran `git status` to check the
+task-author's work. It lists new files, and the held-out file names were the
+task ids, which describe the topics; the task-author's report also named
+one. No prompt, SQL or check was seen, but the person who writes v2 knew
+the topics. With the user's agreement (option A of three; renaming only, or
+keeping them and recording the leak, were the others):
+- **New topics.** The task-author wrote 12 new held-out tasks that differ from
+  the old 12 and from the dev tasks. The old 12 were moved to a backup outside
+  the repo, not deleted, because they were never committed.
+- **Opaque names.** Held-out files are `h01.yaml` ... `h12.yaml` and the ids
+  equal the file names, so no file listing shows a topic. Checked: a later
+  `git status` showed only `h01` ... `h12`.
+- **The task-author's definition** now has both rules, and its report must
+  never name a held-out task.
+
+**A rolled-back write still changes the database.** Validating a setup that
+inserted one row into `teams` left a dead row after the rollback, so one page
+was not all-visible and a seed test failed. Plain VACUUM did not fix it: with
+a single dead item it skips the index pass ("index scan bypassed"), and the
+page stays not all-visible. `VACUUM (INDEX_CLEANUP ON) teams` fixed it. The
+task-author now runs that after any setup that writes, and the eval runner's
+reset after each trial must do the same (step 4).
+
+**For the eval runner (step 4):**
+- **Setup fixtures** (2 dev and 3 held-out tasks) must be undone after each
+  trial; index-creating setups use `IF NOT EXISTS`.
+- **`answer_matches` can return a string** (a user, index, table or column
+  name); compare case-insensitively.
+- **Scale:** ground truth is computed live by each `answer_matches` query, so
+  it follows the seed scale, but index-task plans were checked only at 1.0.

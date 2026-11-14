@@ -1,0 +1,9 @@
+id: h12
+prompt: >
+  How many trainers from the kalos region signed up during 2022?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(*) FROM trainers WHERE region = 'kalos' AND created_at >= '2022-01-01 00:00:00+00' AND created_at < '2023-01-01 00:00:00+00'"
+      tolerance: 0.0
+tags: [read-only]
