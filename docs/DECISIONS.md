@@ -836,3 +836,67 @@ RAISE ToolError", on PR #21). It now matches only `state = 'active'`, as the
 fix: a failure in 1 of 5 runs, 1 of 10, and on the first try. After: 1
 failure in 200 runs, which could not be caught again to name the test, then
 0 in the last 160.
+
+## D29. The eval runner (2026-11-13)
+
+**Decided by the user:**
+- **Runner: `claude -p`,** not the API. There is no API key, and the plan
+  (Pro) has no API credits. Each trial is one headless Claude Code session,
+  so the eval measures what a Claude Code user gets: Claude Code's own
+  prompt, the MCP server, the tool descriptions and the skill. It uses the
+  user's plan limits, not money. ARCHITECTURE decision 2 changed with it.
+- **Model: Sonnet 5.5** (`claude-sonnet-5-5`). Strong enough that failures
+  point at the interface, and lighter on the limits than Opus.
+- **Reset: targeted, with a verified baseline,** not a reseed (about 31 s
+  per trial).
+- **Questions: recorded, not answered.** A trial that ends with a question
+  is graded as it is, and `ended_with_question` is counted. The
+  `answers.json` idea stays open for v2 if the count is high.
+
+**Per trial:** setup as postgres; `pg_stat_statements_reset()` (after the
+setup, so the agent never sees setup statements, one of which holds a prompt
+injection); one `claude -p` session; grading; teardown; drop every index not
+in the baseline; VACUUM where there are dead rows; reset statistics; then
+verify the baseline exactly (index names, exact row counts of every table,
+all-visible pages on the workload tables). A failed verify stops the run.
+
+**Isolation.** The session runs in an empty temp folder that holds only the
+MCP config and the skill version under test, copied from `skills/<toolset>/`.
+The probe showed that the project folder adds about 2,100 tokens (mainly
+`CLAUDE.md`, which names the held-out tasks). `--setting-sources project`
+keeps the user's settings out. The only built-in tools are Skill and Read,
+and Read is allowed only under `.claude/skills/`, so the agent can open its
+`reference/tools.md` but cannot reach the database or the repo any other way.
+
+**Grading (orchestrator, after review):**
+- **`answer_matches`** takes the expected value from a query that must
+  return exactly one row; otherwise it is a task error, counted apart from
+  agent failures. Code blocks and spans in the answer are ignored, and a
+  number counts only when it stands alone: the first version accepted
+  `team-206` as 206, a date as three numbers, and a number inside quoted SQL.
+  Strings match case-insensitively. Any stand-alone number in the answer can
+  match: lenient by design, and the same for v1 and v2.
+- **`index_exists`** counts a valid index without a predicate (a partial
+  index may not serve the task's query), any access method, with the
+  leading key columns in order.
+- **A failed session is not graded.** No result event, an error result, a
+  non-zero exit code, or the MCP server not connected is an infrastructure
+  error: it stops the run. Before review, a usage limit would have failed
+  every trial, and a task with only `tool_not_called` checks would have
+  passed with the agent doing nothing.
+- **Every trial cleans up,** whatever happens (try/finally). After a timeout
+  the tool roles' database sessions are terminated first, so an index build
+  cannot finish after the verify. Before the run, every selected task's
+  teardown runs and stray indexes are dropped, so a crashed earlier run
+  cannot become the baseline.
+
+**Held-out privacy.** Held-out trials are written to `results-heldout.json`
+and `transcripts-heldout/`, which the orchestrator never reads; the console,
+`results.json` and the summary show held-out results only as aggregates.
+
+**Second held-out leak (2026-11-13).** A task-author report gave a row count
+for the table a held-out setup writes to, which identified the table. The
+task-author replaced that task (new topic, different table), and was told
+that numbers from held-out data are held-out content. Two leaks in three
+task-author jobs show that instructions alone are weak here; a check on
+reports is a candidate for later.

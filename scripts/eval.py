@@ -1,9 +1,17 @@
 """Eval runner: tasks x trials against one toolset, graded from the database and the transcript.
 
+Before the run: pre-clean (every selected task's teardown, drop stray indexes), then
+capture the baseline; refuse to start if it is still not clean.
 Per (task, trial):
-  pg_stat_statements_reset -> task setup (as postgres) -> temp folder with the skill and
-  an MCP config -> one headless `claude -p` session -> grade -> teardown + reset to the
-  verified baseline -> verify the baseline (stop the whole run if it differs).
+  task setup (as postgres) -> pg_stat_statements_reset (after the setup, so the agent never
+  sees the setup statements) -> temp folder with the skill and an MCP config -> one headless
+  `claude -p` session -> grade. Whatever happens (timeout, crash, Ctrl-C), a finally block then
+  ends the agent's DB sessions, runs the teardown, resets to the baseline and verifies it
+  (a verify failure stops the run, exit 2).
+A session that failed (no result, is_error, exit code != 0, MCP server not connected) is an
+infra_error: never graded, and it stops the run (exit 3), because a usage limit or a dead
+server would hit every later trial too. Any other exception is a runner_error trial; only the
+exception class name is kept, because a psycopg message can carry held-out SQL.
 
 Why `claude -p` and a bare temp folder: the agent must see only the MCP tools and the
 skill under test. The project's CLAUDE.md would add tokens and name held-out tasks.
@@ -14,14 +22,19 @@ Splits: tasks/dev is for reading transcripts and redesigning tools.
 
 Usage: python scripts/eval.py --toolset v1 --split dev|heldout|all --trials 3
            [--model claude-sonnet-5-5] [--tasks id1,id2] [--timeout 600] [--dry-run]
-Outputs: runs/<timestamp>-<toolset>-<split>/{transcripts/<task>-t<n>.jsonl, results.json}
+Outputs: runs/<timestamp>-<toolset>-<split>/
+  results.json            dev trials in full; held-out only as aggregates
+  transcripts/            dev transcripts
+  results-heldout.json, transcripts-heldout/   full held-out detail (do not read while tuning)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -48,6 +61,8 @@ RUNS_DIR = ROOT / "runs"
 DEFAULT_MODEL = "claude-sonnet-5-5"
 MCP_NAME = "pokedex-ops"
 MCP_PREFIX = f"mcp__{MCP_NAME}__"
+AGENT_ROLES = ("pokedex_agent", "pokedex_dba")
+SKILL_READ_RULE = "Read(./.claude/skills/**)"
 WORKLOAD_TABLES = ("trainers", "teams", "team_members", "battles", "encounters")
 BASELINE_INDEX_RE = re.compile(r"(_pkey|_name_key)$")
 
@@ -185,16 +200,47 @@ def reset_database(conn: psycopg.Connection, base: Baseline, teardown: list[str]
     return {"teardown_and_drop_s": t1 - t0, "vacuum_s": t2 - t1}
 
 
+def preclean(conn: psycopg.Connection, tasks: list[Task]) -> None:
+    """Undo what an earlier crashed run left: every selected teardown, stray indexes, stale visibility.
+
+    Only the exception class is reported: a psycopg message can contain held-out SQL."""
+    try:
+        for t in tasks:
+            run_steps(conn, t.teardown)
+        for name in sorted(i for i in _public_indexes(conn) if not BASELINE_INDEX_RE.search(i)):
+            conn.execute(sql.SQL("DROP INDEX CONCURRENTLY IF EXISTS public.{}").format(sql.Identifier(name)))
+        for table in _not_all_visible(conn):
+            conn.execute(sql.SQL("VACUUM (INDEX_CLEANUP ON) {}").format(sql.Identifier(table)))
+    except Exception as e:
+        raise BaselineError(f"pre-clean failed: {type(e).__name__}") from None
+
+
+def stop_agent_sessions(conn: psycopg.Connection, wait_s: float = 10.0) -> None:
+    """End every agent/dba backend and wait until none is left, so a running CREATE INDEX
+    CONCURRENTLY cannot finish after the verify."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        n = conn.execute(
+            "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
+            "WHERE usename = ANY(%s) AND pid <> pg_backend_pid()", (list(AGENT_ROLES),)).fetchone()[0]
+        if n == 0:
+            return
+        if time.monotonic() > deadline:
+            raise BaselineError(f"agent sessions still connected after {wait_s:g}s")
+        time.sleep(0.2)
+
+
 # --------------------------------------------------------------------------- the claude session
 
 def build_command(prompt: str, model: str, mcp_config: Path, claude: str = "claude") -> list[str]:
-    """Built-in tools other than Skill are off, so the database is reachable only through MCP."""
+    """Only Skill and Read are on, and Read is allowed only under the skill folder (SKILL.md points
+    at reference/tools.md). Any other Read has no one to approve it in -p mode, so it is denied."""
     return [
         claude, "-p", prompt, "--model", model,
         "--mcp-config", str(mcp_config), "--strict-mcp-config",
         "--setting-sources", "project",
-        "--tools", "Skill",
-        "--allowedTools", MCP_PREFIX.rstrip("_"), "Skill",
+        "--tools", "Skill", "Read",
+        "--allowedTools", MCP_PREFIX.rstrip("_"), "Skill", SKILL_READ_RULE,
         "--max-turns", "30", "--no-session-persistence",
         "--output-format", "stream-json", "--verbose",
     ]
@@ -215,20 +261,31 @@ def make_workdir(toolset: str, skills_dir: Path = SKILLS_DIR) -> tuple[Path, Pat
     return work, cfg
 
 
+def _kill_tree(proc: subprocess.Popen) -> None:
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)  # the session was started with start_new_session
+    except (ProcessLookupError, PermissionError):
+        proc.kill()
+
+
 def run_claude(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, int | None, bool]:
-    """Returns (stdout, exit code, timed out). On timeout the whole process tree is killed."""
+    """Returns (stdout, exit code, timed out). On timeout or Ctrl-C the whole process tree is killed."""
     proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                            start_new_session=sys.platform != "win32")
     try:
         out, _ = proc.communicate(timeout=timeout)
         return out, proc.returncode, False
     except subprocess.TimeoutExpired:
-        if sys.platform == "win32":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
-        else:
-            proc.kill()
+        _kill_tree(proc)
         out, _ = proc.communicate()
         return out or "", None, True
+    except BaseException:
+        _kill_tree(proc)
+        raise
 
 
 # --------------------------------------------------------------------------- stream parsing
@@ -240,6 +297,7 @@ class Parsed:
     final_text: str
     result: dict[str, Any] | None
     usage: dict[str, int]
+    mcp_status: dict[str, str] | None = None  # from the init event; None if there was none
 
 
 def parse_stream(text: str) -> Parsed:
@@ -249,6 +307,7 @@ def parse_stream(text: str) -> Parsed:
     errors = 0
     last_text = ""
     result: dict[str, Any] | None = None
+    mcp_status: dict[str, str] | None = None
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -259,6 +318,9 @@ def parse_stream(text: str) -> Parsed:
             continue
         if ev.get("type") == "result":
             result = ev
+            continue
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            mcp_status = {str(m.get("name")): str(m.get("status")) for m in ev.get("mcp_servers") or []}
             continue
         content = (ev.get("message") or {}).get("content")
         if not isinstance(content, list):
@@ -281,7 +343,22 @@ def parse_stream(text: str) -> Parsed:
         usage={"input": u.get("input_tokens", 0), "output": u.get("output_tokens", 0),
                "cache_read": u.get("cache_read_input_tokens", 0),
                "cache_write": u.get("cache_creation_input_tokens", 0)},
+        mcp_status=mcp_status,
     )
+
+
+def infra_problem(parsed: Parsed, exit_code: int | None) -> str | None:
+    """Why this session says nothing about the agent (a fixed short text, never stream content)."""
+    if parsed.result is None:
+        return "no result event in the stream"
+    if parsed.result.get("is_error"):
+        return "the result event has is_error=true"
+    if exit_code != 0:
+        return f"claude exited with code {exit_code}"
+    status = (parsed.mcp_status or {}).get(MCP_NAME)
+    if status != "connected":
+        return f"MCP server {MCP_NAME} not connected (status: {status})"
+    return None
 
 
 def tool_short(name: str) -> str:
@@ -294,16 +371,40 @@ def was_called(calls: dict[str, int], name: str) -> bool:
 
 # --------------------------------------------------------------------------- grading
 
-_NUMBER_RE = re.compile(r"(?<![\w.])-?(?:\d{1,3}(?:[,_]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)")
+_NUMBER_RE = re.compile(r"(-?)(\d{1,3}(?:[,_]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)")
+_CODE_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+
+
+def strip_code(text: str) -> str:
+    """Code blocks and spans hold the agent's queries and output, not its answer."""
+    return _CODE_RE.sub(" ", text)
 
 
 def extract_numbers(text: str) -> list[float]:
-    return [float(m.group().replace(",", "").replace("_", "")) for m in _NUMBER_RE.finditer(text)]
+    """Stand-alone numbers only: not part of a word, id, date, time, version or path.
+    A '-' counts as a minus sign only at the start or after whitespace or '('."""
+    out: list[float] = []
+    for m in _NUMBER_RE.finditer(text):
+        start, end = m.span()
+        before = text[start - 1] if start else ""
+        after = text[end] if end < len(text) else ""
+        if m.group(1):
+            if before and not (before.isspace() or before == "("):
+                continue
+        elif before and (re.match(r"\w", before) or before in "-/:."):
+            continue
+        if after and (re.match(r"\w", after) or after in "-/:"):
+            continue
+        if after == "." and end + 1 < len(text) and text[end + 1].isdigit():
+            continue  # 1.2.3
+        out.append(float((m.group(1) + m.group(2)).replace(",", "").replace("_", "")))
+    return out
 
 
 def answer_matches(answer: str, expected: Any, tolerance: float = 0.0) -> tuple[bool, str]:
     if expected is None:
         return False, "expected value is NULL or the query returned no row"
+    answer = strip_code(answer)
     if isinstance(expected, bool) or not isinstance(expected, (int, float, Decimal)):
         ok = str(expected).lower() in answer.lower()
         return ok, f"{'found' if ok else 'did not find'} {str(expected)!r} in the answer"
@@ -315,6 +416,18 @@ def answer_matches(answer: str, expected: Any, tolerance: float = 0.0) -> tuple[
     return False, f"no number in the answer is within {tolerance} of {exp:g} (found {nums[:8]})"
 
 
+def expected_value(conn: psycopg.Connection, query: str) -> tuple[Any, str | None]:
+    """The expected answer. The query must give exactly one non-NULL, non-empty value,
+    otherwise the task is wrong (not the agent). Returns (value, problem)."""
+    rows = conn.execute(query).fetchall()
+    if len(rows) != 1:
+        return None, f"expected query returned {len(rows)} rows, need exactly 1"
+    value = rows[0][0]
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, "expected query returned NULL or an empty string"
+    return value, None
+
+
 def index_exists(conn: psycopg.Connection, table: str, leading: list[str]) -> tuple[bool, str]:
     rows = conn.execute(
         """SELECT c.relname,
@@ -323,12 +436,13 @@ def index_exists(conn: psycopg.Connection, table: str, leading: list[str]) -> tu
                           LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.num
                          WHERE k.ord <= i.indnkeyatts ORDER BY k.ord)
              FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid JOIN pg_class c ON c.oid = i.indexrelid
-            WHERE t.relname = %s AND t.relnamespace = 'public'::regnamespace AND i.indisvalid""",
+            WHERE t.relname = %s AND t.relnamespace = 'public'::regnamespace
+              AND i.indisvalid AND i.indpred IS NULL""",
         (table,)).fetchall()
     for name, cols in rows:
         if cols[:len(leading)] == leading:
             return True, f"index {name} on {table}({', '.join(c or '<expr>' for c in cols)})"
-    return False, f"no valid index on {table} starting with {leading}; found {[(n, c) for n, c in rows]}"
+    return False, f"no valid full (non-partial) index on {table} starting with {leading}; found {[(n, c) for n, c in rows]}"
 
 
 def grade(conn: psycopg.Connection, checks: list[dict[str, Any]], parsed: Parsed) -> list[dict[str, Any]]:
@@ -343,82 +457,153 @@ def grade(conn: psycopg.Connection, checks: list[dict[str, Any]], parsed: Parsed
         elif kind == "index_exists":
             ok, why = index_exists(conn, arg["table"], list(arg["leading_columns"]))
         elif kind == "answer_matches":
-            row = conn.execute(arg["query"]).fetchone()
-            ok, why = answer_matches(parsed.final_text, row[0] if row else None, float(arg.get("tolerance", 0)))
+            value, problem = expected_value(conn, arg["query"])
+            if problem:
+                out.append({"check": kind, "passed": False, "status": "task_error", "reason": problem})
+                continue
+            ok, why = answer_matches(parsed.final_text, value, float(arg.get("tolerance", 0)))
         else:
             ok, why = False, f"unknown check type {kind!r}"
-        out.append({"check": kind, "passed": bool(ok), "reason": why})
+        out.append({"check": kind, "passed": bool(ok), "status": "ok", "reason": why})
     return out
 
 
 # --------------------------------------------------------------------------- one trial
 
-def run_trial(task: Task, trial: int, args: argparse.Namespace, conn: psycopg.Connection,
-              base: Baseline, run_dir: Path) -> dict[str, Any]:
-    reset_stats(conn)
-    run_steps(conn, task.setup)
-    work, cfg = make_workdir(args.toolset)
-    try:
-        cmd = build_command(task.prompt, args.model, cfg, shutil.which("claude") or "claude")
-        started = time.perf_counter()
-        out, code, timed_out = run_claude(cmd, work, args.timeout)
-        duration = time.perf_counter() - started
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-    (run_dir / "transcripts" / f"{task.id}-t{trial}.jsonl").write_text(out, encoding="utf-8")
+def new_record(task: Task, trial: int) -> dict[str, Any]:
+    """status: graded | timeout | infra_error | runner_error. Only graded and timeout are scored."""
+    return {
+        "task": task.id, "split": task.split, "trial": trial, "status": "runner_error",
+        "success": False, "task_error": False, "reason": None, "error": None, "checks": [],
+        "tool_calls": {}, "tool_call_count": 0, "tool_errors": 0, "turns": None, "duration_s": 0.0,
+        "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0},
+        "cost_usd_list_estimate": None, "ended_with_question": False, "unrequested_writes": False,
+        "timed_out": False, "exit_code": None, "reset_s": {},
+    }
 
+
+def score_session(conn: psycopg.Connection, task: Task, out: str, code: int | None,
+                  timed_out: bool, duration: float) -> dict[str, Any]:
     parsed = parse_stream(out)
-    checks = grade(conn, task.checks, parsed)  # before any reset: the setup data must still be there
-    timings = reset_database(conn, base, task.teardown, args.vacuum)
-    verify_baseline(conn, base)
-
     res = parsed.result or {}
     forbids_apply = any(c.get("tool_not_called") == "apply_index" for c in task.checks)
-    return {
-        "task": task.id, "split": task.split, "trial": trial,
-        "success": bool(checks) and all(c["passed"] for c in checks) and not timed_out,
-        "checks": checks,
+    fields: dict[str, Any] = {
         "tool_calls": parsed.tool_calls, "tool_call_count": sum(parsed.tool_calls.values()),
         "tool_errors": parsed.tool_errors, "turns": res.get("num_turns"),
         "duration_s": round(duration, 1), "tokens": parsed.usage,
         "cost_usd_list_estimate": res.get("total_cost_usd"),
         "ended_with_question": parsed.final_text.strip().endswith("?"),
         "unrequested_writes": forbids_apply and was_called(parsed.tool_calls, "apply_index"),
-        "timed_out": timed_out, "exit_code": code, "reset_s": {k: round(v, 2) for k, v in timings.items()},
+        "timed_out": timed_out, "exit_code": code,
     }
+    if not timed_out:
+        problem = infra_problem(parsed, code)
+        if problem:
+            return {**fields, "status": "infra_error", "reason": problem}
+    checks = grade(conn, task.checks, parsed)  # before any reset: the setup data must still be there
+    task_error = any(c["status"] == "task_error" for c in checks)
+    return {**fields, "status": "timeout" if timed_out else "graded", "checks": checks,
+            "task_error": task_error,
+            "success": bool(checks) and all(c["passed"] for c in checks) and not timed_out and not task_error}
+
+
+def run_trial(task: Task, trial: int, args: argparse.Namespace, conn: psycopg.Connection,
+              base: Baseline, run_dir: Path) -> dict[str, Any]:
+    """One trial. The cleanup in `finally` always runs; Ctrl-C is re-raised after it."""
+    rec = new_record(task, trial)
+    interrupted: KeyboardInterrupt | None = None
+    work: Path | None = None
+    try:
+        run_steps(conn, task.setup)
+        reset_stats(conn)  # after the setup: check_health must not show the setup statements
+        work, cfg = make_workdir(args.toolset)
+        cmd = build_command(task.prompt, args.model, cfg, shutil.which("claude") or "claude")
+        started = time.perf_counter()
+        out, code, timed_out = run_claude(cmd, work, args.timeout)
+        duration = time.perf_counter() - started
+        tdir = "transcripts-heldout" if task.split == "heldout" else "transcripts"
+        (run_dir / tdir / f"{task.id}-t{trial}.jsonl").write_text(out, encoding="utf-8")
+        rec.update(score_session(conn, task, out, code, timed_out, duration))
+    except KeyboardInterrupt as e:
+        interrupted = e
+        rec["status"], rec["error"] = "runner_error", "KeyboardInterrupt"
+    except Exception as e:  # class name only: a psycopg message can contain held-out SQL
+        rec["status"], rec["error"] = "runner_error", type(e).__name__
+    finally:
+        if work is not None:
+            shutil.rmtree(work, ignore_errors=True)
+        try:
+            stop_agent_sessions(conn)
+            timings = reset_database(conn, base, task.teardown, args.vacuum)
+        except BaselineError:
+            raise
+        except Exception as e:
+            raise BaselineError(f"cleanup failed: {type(e).__name__}") from None
+        verify_baseline(conn, base)
+        rec["reset_s"] = {k: round(v, 2) for k, v in timings.items()}
+    if interrupted is not None:
+        raise interrupted
+    return rec
 
 
 # --------------------------------------------------------------------------- summary
 
 def summarize(trials: list[dict[str, Any]]) -> dict[str, Any]:
-    n = len(trials)
+    """The success rate counts only scored trials: graded or timed out, and not a task error."""
+    scored = [t for t in trials if t["status"] in ("graded", "timeout") and not t["task_error"]]
+    n = len(scored)
+    tok = sum(sum(t["tokens"].values()) for t in scored)
+    out: dict[str, Any] = {
+        "trials": len(trials), "scored": n,
+        "task_errors": sum(t["task_error"] for t in trials),
+        "infra_errors": sum(t["status"] == "infra_error" for t in trials),
+        "runner_errors": sum(t["status"] == "runner_error" for t in trials),
+    }
     if not n:
-        return {"trials": 0}
-    tok = sum(sum(t["tokens"].values()) for t in trials)
+        return {**out, "success_rate": None}
     return {
-        "trials": n, "success_rate": sum(t["success"] for t in trials) / n,
-        "mean_tool_calls": sum(t["tool_call_count"] for t in trials) / n,
+        **out, "success_rate": sum(t["success"] for t in scored) / n,
+        "mean_tool_calls": sum(t["tool_call_count"] for t in scored) / n,
         "mean_tokens": tok / n, "total_tokens": tok,
-        "total_cost_usd_list_estimate": sum(t["cost_usd_list_estimate"] or 0 for t in trials),
-        "tool_errors": sum(t["tool_errors"] for t in trials),
-        "ended_with_question": sum(t["ended_with_question"] for t in trials),
-        "unrequested_writes": sum(t["unrequested_writes"] for t in trials),
-        "timed_out": sum(t["timed_out"] for t in trials),
+        "total_cost_usd_list_estimate": sum(t["cost_usd_list_estimate"] or 0 for t in scored),
+        "tool_errors": sum(t["tool_errors"] for t in scored),
+        "ended_with_question": sum(t["ended_with_question"] for t in scored),
+        "unrequested_writes": sum(t["unrequested_writes"] for t in scored),
+        "timed_out": sum(t["timed_out"] for t in scored),
     }
 
 
 def build_summary(trials: list[dict[str, Any]]) -> dict[str, Any]:
-    """Per task for dev; held-out tasks only as one aggregate."""
+    """Dev per task and in total; held-out only as one aggregate. No mixed overall block."""
     dev = [t for t in trials if t["split"] != "heldout"]
     held = [t for t in trials if t["split"] == "heldout"]
     per_task = {tid: summarize([t for t in dev if t["task"] == tid]) for tid in sorted({t["task"] for t in dev})}
-    return {"overall": summarize(trials), "dev_per_task": per_task, "heldout_aggregate": summarize(held)}
+    return {"dev_aggregate": summarize(dev), "dev_per_task": per_task, "heldout_aggregate": summarize(held)}
+
+
+def write_results(run_dir: Path, args: argparse.Namespace, trials: list[dict[str, Any]]) -> None:
+    """results.json is safe to read while tuning: no held-out trial detail. That goes to results-heldout.json."""
+    head = {"toolset": args.toolset, "model": args.model, "split": args.split}
+    dev = [t for t in trials if t["split"] != "heldout"]
+    held = [t for t in trials if t["split"] == "heldout"]
+    (run_dir / "results.json").write_text(json.dumps(
+        {**head, "trials": dev, "summary": build_summary(trials)}, indent=2), encoding="utf-8")
+    if held:
+        (run_dir / "results-heldout.json").write_text(json.dumps(
+            {**head, "trials": held}, indent=2), encoding="utf-8")
 
 
 def print_trial_line(r: dict[str, Any]) -> None:
     label = f"{r['task']} t{r['trial']}" if r["split"] != "heldout" else f"heldout t{r['trial']}"
-    print(f"{label}: {'PASS' if r['success'] else 'FAIL'}  calls={r['tool_call_count']} "
-          f"turns={r['turns']} {r['duration_s']}s", flush=True)
+    if r["status"] == "runner_error":
+        verdict = f"RUNNER_ERROR ({r['error']})"
+    elif r["status"] == "infra_error":
+        verdict = f"INFRA_ERROR ({r['reason']})"
+    elif r["task_error"]:
+        verdict = "TASK_ERROR"
+    else:
+        verdict = "PASS" if r["success"] else ("TIMEOUT" if r["status"] == "timeout" else "FAIL")
+    print(f"{label}: {verdict}  calls={r['tool_call_count']} turns={r['turns']} {r['duration_s']}s", flush=True)
     if r["split"] != "heldout":
         for c in r["checks"]:
             print(f"    [{'x' if c['passed'] else ' '}] {c['check']}: {c['reason']}")
@@ -453,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the plan; run nothing, touch no database")
     args = p.parse_args(argv)
 
-    tasks = load_tasks(args.split, args.tasks.split(",") if args.tasks else None)
+    tasks = load_tasks(args.split, args.tasks.split(",") if args.tasks else None, TASKS_DIR)
     if args.dry_run:
         print("\n".join(plan_lines(tasks, args)))
         return 0
@@ -464,19 +649,24 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir = RUNS_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-{args.toolset}-{args.split}"
     (run_dir / "transcripts").mkdir(parents=True)
+    if any(t.split == "heldout" for t in tasks):
+        (run_dir / "transcripts-heldout").mkdir()
     results: list[dict[str, Any]] = []
     with admin() as conn:
-        base = capture_baseline(conn)
-        reset_stats(conn)
         try:
+            preclean(conn, tasks)
+            base = capture_baseline(conn)
+            reset_stats(conn)
             for task in tasks:
                 for n in range(1, args.trials + 1):
                     r = run_trial(task, n, args, conn, base, run_dir)
                     results.append(r)
                     print_trial_line(r)
-                    (run_dir / "results.json").write_text(json.dumps(
-                        {"toolset": args.toolset, "model": args.model, "split": args.split,
-                         "trials": results, "summary": build_summary(results)}, indent=2), encoding="utf-8")
+                    write_results(run_dir, args, results)
+                    if r["status"] == "infra_error":
+                        print(f"STOPPED: infra error: {r['reason']}. A later trial would fail the same way; "
+                              f"fix it and start again.", file=sys.stderr)
+                        return 3
         except BaselineError as e:
             print(f"STOPPED: {e}", file=sys.stderr)
             return 2
