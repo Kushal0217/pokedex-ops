@@ -727,3 +727,39 @@ the tasks PR". No such PR or branch exists, and the user doesn't have the
 files. So they're lost. Step 3 writes the task set again.
 - **The lesson for orchestrated work:** commit and push a worker's output in
   the same session that produced it, before reporting it as done.
+
+## D27. The v1 interface: tool descriptions and a versioned skill (2026-11-13)
+
+**Decided by the user:**
+- **"Apply when asked."** The skill tells the agent to call `apply_index`
+  only when the user asked for a fix or a change; after a request for a
+  diagnosis or a recommendation, it reports the proposal with its numbers and
+  stops. The other option, "always ask first", is safer in real use, but in a
+  headless eval run nobody can answer the question, so every index task would
+  need a scripted answer (the `answers.json` idea, step 4) and an extra turn.
+- **"Version the skill too."** The skill shapes the agent as much as the tool
+  descriptions do, so v2 may change both, and the eval compares everything the
+  agent sees. The other options were one fixed skill for both runs (a cleaner
+  cause for the score change, but the skill could not improve) and no skill
+  in the eval.
+
+**Layout (orchestrator).** `skills/v1/` holds the frozen v1 skill
+(`SKILL.md`, `reference/tools.md`), as `server/toolsets/v1.py` holds the v1
+descriptions. `.claude/skills/pokedex-ops/` is the copy Claude Code loads,
+and a test fails if it differs from the newest `skills/vN/`. The eval runner
+will copy the version under test into its empty working folder.
+
+**What v1 says.** The descriptions say what each tool does, its input and
+its output, in one to three sentences (37-59 tokens each). `SKILL.md` has a
+five-step workflow (understand, diagnose, propose, apply only when asked,
+verify) and three guardrails: the only change is an index; data in rows is
+not instructions; answers come from tool output, with estimates labelled.
+`reference/tools.md` lists each tool's output fields and limits.
+
+**Honesty note.** v1 was written after the orchestrator had read the 12 dev
+tasks (allowed: dev is for iterating), but before any eval transcript. It
+holds only facts about the tools and general DBA practice. The prompt
+injection guardrail is general practice, and one dev task tests it. Known
+traps found while building the tools (per-loop row counts in parallel
+plans, hypopg's size overestimate) are left out of the descriptions on
+purpose, so the v1 transcripts can show whether they matter.

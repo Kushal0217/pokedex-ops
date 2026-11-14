@@ -15,7 +15,7 @@ Steps from ARCHITECTURE.md, "Build order".
 |---|------|--------|
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
-| 3 | SKILL.md and the task set | not started |
+| 3 | SKILL.md and the task set | **in progress**: v1 descriptions and skill done (D27); task set in its own PR |
 | 4 | Baseline eval with v1, recorded honestly | not started |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
@@ -26,15 +26,15 @@ Steps from ARCHITECTURE.md, "Build order".
 |--------|--------|-------|
 | `server/sqlguard.py` | implemented, plus `strip_terminator`, `leading_keyword` and `add_concurrently` helpers | `tests/test_sqlguard.py`, 171 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
-| `server/toolsets/v1.py` | names and schemas done (`propose_index` requires `index_sql`, D24); descriptions are still `TODO` | `tests/test_scaffold.py` |
+| `server/toolsets/v1.py` | names and schemas done (`propose_index` requires `index_sql`, D24); v1 descriptions written (D27) | `tests/test_scaffold.py` |
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors, hypopg state cleared on each read checkout | `tests/test_db.py`, 26 cases (25 need the database) |
 | `server/tools.py` | all six tools implemented | `tests/test_tools.py`, 92 cases (77 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | stub | none |
-| `.claude/skills/pokedex-ops/` | stub | none |
+| `skills/v1/`, `.claude/skills/pokedex-ops/` | v1 skill: workflow, guardrails, tool reference; the loaded copy equals the newest version (D27) | `tests/test_scaffold.py` |
 | `tasks/dev`, `tasks/heldout` | empty | none |
 
-Test suite: 335 tests, all passing locally with the database running. CI
+Test suite: 336 tests, all passing locally with the database running. CI
 runs all of them in two jobs: `test` (`pytest -m "not db"`, 226 tests) and
 `db-test` (the 109 database tests against a freshly built image). Locally, the database tests
 are skipped when Postgres isn't reachable; in CI that's a failure.
@@ -255,9 +255,8 @@ full-scale database, 41 tests in `tests/test_tools.py`:
   PR #10, and the first run built the image and passed. That was on GitHub's
   Linux runner; it hasn't been run on the laptop itself (Docker Desktop on
   Windows), but it's the same Dockerfile and BuildKit build.
-- [ ] **v1 tool descriptions** in `server/toolsets/v1.py` are `TODO`. They
-  must be written before the baseline eval (step 4), as a plain first draft,
-  not tuned.
+- [x] **v1 tool descriptions** written as a plain first draft, with the v1
+  skill (D27).
 - [x] **pg_stat_statements is reset after seeding** since PR #14, by `seed.py`
   (DECISIONS D19). Eval fixtures can still reset it per task.
 - [x] **Database tests run in CI** since PR #10 (DECISIONS D15).
@@ -289,15 +288,12 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-Step 2 is done: all six tools work and are tested. Next is step 3: the
-v1 tool descriptions (a plain first draft, not tuned), the skill's
-`SKILL.md` and `reference/tools.md`, and the eval task set. The 12 dev and 12
-heldout tasks written on 2026-11-11 (see `docs/orchestration-log.md`) were
-never committed or pushed, and are lost (D25); the task set has to be written
-again, and the heldout decision recorded with it. Then
-step 4: the eval runner, after a measured `claude -p` trial. Build them with the orchestrator setup (D18) and record each
-delegation in `docs/orchestration-log.md`. The three done so far aren't in
-the skill's `reference/tools.md` yet; that's part of step 3.
+Step 3: the v1 descriptions and skill are done (D27). The eval task set
+is in its own PR: the 12 dev tasks were not lost (D25 was written from a
+cloud session that could not see the local, uncommitted files), and the
+held-out set is being rewritten with opaque names (D26). Then step 4: the
+eval runner, after a measured `claude -p` trial. Build with the orchestrator
+setup (D18) and record each delegation in `docs/orchestration-log.md`.
 
 ## History
 
@@ -322,3 +318,5 @@ the skill's `reference/tools.md` yet; that's part of step 3.
 | 2026-11-11 | #17 | `apply_index`: always CONCURRENTLY, new index found by name diff (D22); `claude -p` probe recorded |
 | 2026-11-11 | #18 | `check_health`: nine sections, lock-free sizes, stops at once when the database is down (D23) |
 | 2026-11-11 | #19 | `propose_index` with hypopg; hypothetical and hidden indexes cleared on each read checkout (D24). Step 2 done |
+| 2026-11-13 | #20 | Open-item fixes: timeout vs cancel, statistics test, CI action versions, Docker pid file (D25) |
+| 2026-11-13 | #21 | v1 tool descriptions and the v1 skill, versioned in `skills/v1/` (D27) |
