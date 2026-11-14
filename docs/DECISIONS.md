@@ -811,3 +811,28 @@ injection guardrail is general practice, and one dev task tests it. Known
 traps found while building the tools (per-loop row counts in parallel
 plans, hypopg's size overestimate) are left out of the descriptions on
 purpose, so the v1 transcripts can show whether they matter.
+
+## D28. Time a timeout with `perf_counter`, not `monotonic` (2026-11-13)
+
+**Problem.** D20 and D25 tell a statement_timeout from another session's
+cancel by elapsed time: a timeout can only fire once the limit has passed.
+On Windows, `time.monotonic()` ticks every 15.6 ms (`GetTickCount64`), so a
+200 ms timeout in a test could measure as about 187 ms and was reported as
+"cancelled by another session". `time.perf_counter()` is also monotonic, and
+ticks every 0.1 us on Windows (`QueryPerformanceCounter`). All of this
+timing in `db.py` and `explain_query` now uses it. With precise clocks the
+rule is sound: the client starts timing before the server receives the
+statement and stops after the server cancels it, so the client's time is
+never shorter than the server's.
+
+**A second, separate flake.** The `explain_query` cancel test looked for any
+session whose query text had `pg_sleep(5)`. A session that a `test_db.py`
+test had cancelled is idle but still shows its last query there, so the test
+could cancel that one; the real query then ran to its end (CI: "DID NOT
+RAISE ToolError", on PR #21). It now matches only `state = 'active'`, as the
+`test_db.py` test already did.
+
+**Evidence** (Windows, the cancel and timeout tests in CI order). Before the
+fix: a failure in 1 of 5 runs, 1 of 10, and on the first try. After: 1
+failure in 200 runs, which could not be caught again to name the test, then
+0 in the last 160.
