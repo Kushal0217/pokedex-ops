@@ -68,8 +68,8 @@ def test_absent_number_and_null_fail():
 # --------------------------------------------------------------------------- command, folder, dry run
 
 def test_build_command_flags():
-    cmd = ev.build_command("do it", "claude-sonnet-5-5", Path("/x/mcp.json"))
-    assert cmd[:3] == ["claude", "-p", "do it"]
+    cmd = ev.build_command("claude-sonnet-5-5", Path("/x/mcp.json"))
+    assert cmd[:2] == ["claude", "-p"] and "do it" not in cmd
     assert cmd[cmd.index("--model") + 1] == "claude-sonnet-5-5"
     assert cmd[cmd.index("--tools") + 1] == "Skill"
     i = cmd.index("--allowedTools")

@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -200,8 +201,12 @@ def _not_all_visible(conn: psycopg.Connection) -> list[str]:
     return sorted(r[0] for r in rows)
 
 
-def capture_baseline(conn: psycopg.Connection) -> Baseline:
-    """Snapshot the clean state. Refuses (never repairs) a database that is not clean."""
+def capture_baseline(conn: psycopg.Connection, expected_counts: dict[str, int] | None = None) -> Baseline:
+    """Snapshot the clean state. Refuses (never repairs) a database that is not clean.
+
+    `expected_counts` are the row counts recorded when the run started: a resumed run must not
+    adopt a leftover setup row as the new baseline.
+    """
     indexes = _public_indexes(conn)
     extra = sorted(i for i in indexes if not BASELINE_INDEX_RE.search(i))
     if extra:
@@ -209,7 +214,11 @@ def capture_baseline(conn: psycopg.Connection) -> Baseline:
     dirty = _not_all_visible(conn)
     if dirty:
         raise BaselineError(f"cannot start: relallvisible != relpages on {dirty}; run VACUUM on them")
-    return Baseline(frozenset(indexes), _public_counts(conn))
+    counts = _public_counts(conn)
+    if expected_counts is not None and counts != expected_counts:
+        diff = sorted(t for t in set(counts) | set(expected_counts) if counts.get(t) != expected_counts.get(t))
+        raise BaselineError(f"cannot resume: row counts differ from the run's recorded baseline on {diff}")
+    return Baseline(frozenset(indexes), counts)
 
 
 def verify_baseline(conn: psycopg.Connection, base: Baseline) -> None:
@@ -267,14 +276,15 @@ def reset_database(conn: psycopg.Connection, base: Baseline, teardown: list[str]
 
 # --------------------------------------------------------------------------- the claude session
 
-def build_command(prompt: str, model: str, mcp_config: Path, claude: str = "claude",
+def build_command(model: str, mcp_config: Path, claude: str = "claude",
                   effort: str = DEFAULT_EFFORT, resume: str | None = None,
                   persist: bool = False) -> list[str]:
     """Built-in tools other than Skill are off, so the database is reachable only through MCP.
 
     Only the v1 skill is allowed. `persist` keeps the session on disk so a reply can resume it.
+    The prompt goes to claude on stdin, so a shell never re-parses it (quoting on Windows).
     """
-    cmd = [claude, "-p", prompt]
+    cmd = [claude, "-p"]
     if resume:
         cmd += ["--resume", resume]
     cmd += [
@@ -305,18 +315,26 @@ def make_workdir(toolset: str, skills_dir: Path = SKILLS_DIR) -> tuple[Path, Pat
     return work, cfg
 
 
-def run_claude(cmd: list[str], cwd: Path, timeout: int) -> tuple[str, int | None, bool]:
-    """Returns (stdout, exit code, timed out). On timeout the whole process tree is killed."""
-    proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+def kill_tree(proc: subprocess.Popen) -> None:
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        return
     try:
-        out, _ = proc.communicate(timeout=timeout)
+        os.killpg(proc.pid, signal.SIGKILL)  # the process is its own group leader (start_new_session)
+    except ProcessLookupError:
+        pass
+
+
+def run_claude(cmd: list[str], cwd: Path, timeout: int, stdin_text: str = "") -> tuple[str, int | None, bool]:
+    """Returns (stdout, exit code, timed out). On timeout the whole process tree is killed."""
+    proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                            start_new_session=sys.platform != "win32")
+    try:
+        out, _ = proc.communicate(stdin_text, timeout=timeout)
         return out, proc.returncode, False
     except subprocess.TimeoutExpired:
-        if sys.platform == "win32":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
-        else:
-            proc.kill()
+        kill_tree(proc)
         out, _ = proc.communicate()
         return out or "", None, True
 
@@ -543,7 +561,8 @@ def grade(conn: psycopg.Connection, checks: list[dict[str, Any]], parsed: Parsed
 
 # --------------------------------------------------------------------------- one trial
 
-Runner = Callable[[list[str], Path, int], tuple[str, int | None, bool]]
+Runner = Callable[[list[str], Path, int, str], tuple[str, int | None, bool]]  # cmd, cwd, timeout, stdin
+_USAGE_ERROR_RE = re.compile(r"usage limit|rate.?limit|limit reached|hit your limit|overloaded", re.IGNORECASE)
 
 
 @dataclass
@@ -557,70 +576,126 @@ class Session:
     duration: float
     exit_code: int | None
     timed_out: bool
+    transient: str | None = None  # "timeout" or "usage": not a finished trial, a resumed run retries it
+
+
+def invocation_error(parsed: Parsed, code: int | None) -> str | None:
+    res = parsed.result
+    if res is None:
+        return f"claude exited with code {code} and no result event" if code else None
+    if res.get("is_error") or str(res.get("subtype") or "").startswith("error"):
+        return f"result is an error (subtype {res.get('subtype')!r})"
+    return None
 
 
 def run_session(task: Task, args: argparse.Namespace, work: Path, cfg: Path,
-                runner: Runner | None = None, claude: str = "claude") -> Session:
+                runner: Runner | None = None, claude: str = "claude",
+                transcript_path: Path | None = None) -> Session:
     """The conversation: the prompt, then up to MAX_REPLIES canned replies resuming the session."""
     runner = runner or run_claude
     persist = bool(task.answers)
-    cmd = build_command(task.prompt, args.model, cfg, claude, args.effort, persist=persist)
+    cmd = build_command(args.model, cfg, claude, args.effort, persist=persist)
+    stdin = task.prompt
     parts: list[Parsed] = []
     outs: list[str] = []
     replies: list[str] = []
     problems: list[str] = []
     status = "ok"
+    transient: str | None = None
     code: int | None = None
     timed_out = False
+    capped = False
+    if transcript_path:
+        transcript_path.write_text("", encoding="utf-8")
     started = time.perf_counter()
     while True:
-        out, code, timed_out = runner(cmd, work, args.timeout)
+        out, code, timed_out = runner(cmd, work, args.timeout, stdin)
         outs.append(out if out.endswith("\n") or not out else out + "\n")
+        if transcript_path:  # written now, so a later failure cannot lose it
+            with transcript_path.open("a", encoding="utf-8") as f:
+                f.write(outs[-1])
         parsed = parse_stream(out)
         parts.append(parsed)
+        error = invocation_error(parsed, code)
         if parsed.init is None:
-            status = "claude_error"
-            problems.append("no system/init event in the claude output")
+            error = error or "no system/init event in the claude output"
         else:
             found = isolation_problems(parsed.init, args.toolset)
             if found and status == "ok":
                 status = "isolation_failed"
             problems += found
+        if error:
+            problems.append(error)
+            if status == "ok":
+                status = "claude_error"
+        if timed_out:
+            transient = "timeout"
+            break
+        if error and _USAGE_ERROR_RE.search(parsed.final_text or error):
+            transient = "usage"
+            break
         reply = match_answer(task.answers, parsed.final_text) if task.answers else None
         session_id = (parsed.result or {}).get("session_id") or (parsed.init or {}).get("session_id")
-        if not reply or len(replies) >= MAX_REPLIES or timed_out or status == "claude_error" or not session_id:
+        if not reply or status != "ok" or not session_id:
+            break
+        if len(replies) >= MAX_REPLIES:
+            capped = True
+            break
+        if usage_stop_reason(parsed.rate_limit, args.stop_at_5h, args.stop_at_7d, ""):
+            transient = "usage"  # the next invocation would pass the limit: the trial cannot finish
             break
         replies.append(reply)
-        cmd = build_command(reply, args.model, cfg, claude, args.effort, resume=session_id, persist=True)
+        cmd = build_command(args.model, cfg, claude, args.effort, resume=session_id, persist=True)
+        stdin = reply
     duration = time.perf_counter() - started
     last = parts[-1].final_text
+    matched = bool(task.answers) and match_answer(task.answers, last) is not None
+    unanswered = (matched or "?" in last) if capped else ("?" in last and not matched)
     return Session(
         parsed=merge_parsed(parts), transcript="".join(outs), replies=replies,
-        unanswered_question="?" in last and match_answer(task.answers, last) is None,
-        status=status, problems=problems, duration=duration, exit_code=code, timed_out=timed_out)
+        unanswered_question=unanswered, status=status, problems=problems, duration=duration,
+        exit_code=code, timed_out=timed_out, transient=transient)
+
+
+def best_effort_reset(conn: psycopg.Connection, base: Baseline, teardown: list[str], vacuum: str) -> None:
+    """After a failure: teardown and reset if possible; never hide the original error."""
+    for steps in (teardown, []):  # a failing teardown must not block dropping indexes and vacuum
+        try:
+            reset_database(conn, base, steps, vacuum)
+            return
+        except Exception as e:  # noqa: BLE001
+            print(f"warning: cleanup failed: {type(e).__name__}", file=sys.stderr)
 
 
 def run_trial(task: Task, trial: int, args: argparse.Namespace, conn: psycopg.Connection,
               base: Baseline, run_dir: Path, runner: Runner | None = None) -> dict[str, Any]:
-    reset_stats(conn)
-    run_steps(conn, task.setup)
-    truths = compute_truths(conn, task.checks)  # as admin, after setup, before the agent
-    work, cfg = make_workdir(args.toolset)
+    work = None
     try:
-        session = run_session(task, args, work, cfg, runner, shutil.which("claude") or "claude")
+        run_steps(conn, task.setup)
+        truths = compute_truths(conn, task.checks)  # as admin, after setup, before the agent
+        work, cfg = make_workdir(args.toolset)
+        reset_stats(conn)  # last step before the agent: the runner's own SQL must not show in the stats
+        session = run_session(task, args, work, cfg, runner, shutil.which("claude") or "claude",
+                              run_dir / "transcripts" / f"{task.id}-t{trial}.jsonl")
+        parsed = session.parsed
+        checks = grade(conn, task.checks, parsed, truths)  # before any reset: the setup data must still be there
+        timings = reset_database(conn, base, task.teardown, args.vacuum)
+    except BaseException:
+        best_effort_reset(conn, base, task.teardown, getattr(args, "vacuum", "dirty"))
+        raise
     finally:
-        shutil.rmtree(work, ignore_errors=True)
-    (run_dir / "transcripts" / f"{task.id}-t{trial}.jsonl").write_text(session.transcript, encoding="utf-8")
-
-    parsed = session.parsed
-    checks = grade(conn, task.checks, parsed, truths)  # before any reset: the setup data must still be there
-    timings = reset_database(conn, base, task.teardown, args.vacuum)
+        if work:
+            shutil.rmtree(work, ignore_errors=True)
     verify_baseline(conn, base)
 
+    held = task.split == "heldout"
+    if held:  # nothing about a held-out task's content goes to disk, except the transcript
+        checks = [{"check": c["check"], "passed": c["passed"]} for c in checks]
     res = parsed.result or {}
     forbids_apply = any(c.get("tool_not_called") == "apply_index" for c in task.checks)
-    return {
+    r = {
         "task": task.id, "split": task.split, "trial": trial, "status": session.status,
+        "transient": session.transient,
         "isolation_problems": session.problems,
         "success": (session.status == "ok" and bool(checks) and all(c["passed"] for c in checks)
                     and not session.timed_out),
@@ -630,13 +705,16 @@ def run_trial(task: Task, trial: int, args: argparse.Namespace, conn: psycopg.Co
         "duration_s": round(session.duration, 1), "tokens": parsed.usage,
         "cost_usd_list_estimate": res.get("total_cost_usd"),
         "skill_loaded": skill_was_loaded(parsed.skill_inputs),
-        "replies": session.replies, "unanswered_question": session.unanswered_question,
+        "reply_count": len(session.replies), "unanswered_question": session.unanswered_question,
         "ended_with_question": parsed.final_text.strip().endswith("?"),
         "unrequested_writes": forbids_apply and was_called(parsed.tool_calls, "apply_index"),
         "timed_out": session.timed_out, "exit_code": session.exit_code,
         "rate_limit": parsed.rate_limit,
         "reset_s": {k: round(v, 2) for k, v in timings.items()},
     }
+    if not held:
+        r["replies"] = session.replies
+    return r
 
 
 # --------------------------------------------------------------------------- usage guard
@@ -722,10 +800,10 @@ def plan_lines(tasks: list[Task], args: argparse.Namespace) -> list[str]:
     for t in tasks:
         for n in range(1, args.trials + 1):
             if t.split == "heldout":
-                lines.append(f"heldout trial {n}: claude -p <held-out prompt> ...")
+                lines.append(f"heldout trial {n}: <held-out prompt on stdin> | claude -p ...")
                 continue
-            cmd = build_command(t.prompt, args.model, cfg, effort=args.effort, persist=bool(t.answers))
-            lines.append(f"{t.id} t{n}: " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
+            cmd = build_command(args.model, cfg, effort=args.effort, persist=bool(t.answers))
+            lines.append(f"{t.id} t{n}: <prompt on stdin> | " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
     return lines
 
 
@@ -741,24 +819,61 @@ def write_atomic(path: Path, data: str) -> None:
 
 
 def load_trials(run_dir: Path) -> list[dict[str, Any]]:
-    trials = [json.loads(p.read_text(encoding="utf-8")) for p in (run_dir / "trials").glob("*.json")]
+    trials = []
+    for path in (run_dir / "trials").glob("*.json"):
+        try:
+            t = json.loads(path.read_text(encoding="utf-8"))
+            t["task"], t["trial"]  # noqa: B018  (must be present)
+        except (json.JSONDecodeError, KeyError, TypeError, UnicodeDecodeError) as e:
+            raise SystemExit(f"corrupt trial file {path}: {type(e).__name__}; delete it to rerun that trial") from None
+        trials.append(t)
     return sorted(trials, key=lambda t: (t["task"], t["trial"]))
 
 
-def write_results(run_dir: Path, args: argparse.Namespace) -> list[dict[str, Any]]:
-    trials = load_trials(run_dir)
+def write_results(run_dir: Path, args: argparse.Namespace,
+                  plan: set[tuple[str, int]] | None = None) -> list[dict[str, Any]]:
+    """Rebuild results.json from the trial files; only trials in the current plan are summarized."""
+    trials = [t for t in load_trials(run_dir) if plan is None or (t["task"], t["trial"]) in plan]
     write_atomic(run_dir / "results.json", json.dumps(
         {"toolset": args.toolset, "model": args.model, "effort": args.effort, "split": args.split,
          "trials": trials, "summary": build_summary(trials)}, indent=2))
     return trials
 
 
+def read_run_config(run_dir: Path, args: argparse.Namespace) -> dict[str, Any] | None:
+    """The config written when the run started. Refuses to resume with another toolset/model/effort."""
+    path = run_dir / "config.json"
+    if not path.exists():
+        return None
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        raise SystemExit(f"corrupt run config {path}") from None
+    for key in ("toolset", "model", "effort"):
+        if cfg.get(key) != getattr(args, key):
+            raise SystemExit(f"cannot resume {run_dir.name}: it was started with {key}={cfg.get(key)!r}, "
+                             f"now {getattr(args, key)!r}. Use the same value or a new --run name")
+    return cfg
+
+
+def write_run_config(run_dir: Path, args: argparse.Namespace, base: Baseline) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    write_atomic(run_dir / "config.json", json.dumps({
+        "toolset": args.toolset, "model": args.model, "effort": args.effort, "split": args.split,
+        "trials": args.trials, "max_turns": 30, "tasks": args.tasks, "baseline_counts": base.counts,
+    }, indent=2))
+
+
 def run_loop(tasks: list[Task], args: argparse.Namespace, run_dir: Path,
              trial_fn: Callable[[Task, int], dict[str, Any]]) -> int:
-    """Run the missing (task, trial) pairs; stop at --max-trials or when the usage guard trips."""
+    """Run the missing (task, trial) pairs; stop at --max-trials or when the usage guard trips.
+
+    A trial that hit a timeout or a usage limit is not written, so a resumed run retries it.
+    """
     (run_dir / "transcripts").mkdir(parents=True, exist_ok=True)
     (run_dir / "trials").mkdir(parents=True, exist_ok=True)
     plan = [(t, n) for t in tasks for n in range(1, args.trials + 1)]
+    keys = {(t.id, n) for t, n in plan}
     done = {(t["task"], t["trial"]) for t in load_trials(run_dir)}
     skipped = sum((t.id, n) in done for t, n in plan)
     print(f"skipping {skipped} already finished trial(s) of {len(plan)} planned in {run_dir}", flush=True)
@@ -777,9 +892,16 @@ def run_loop(tasks: list[Task], args: argparse.Namespace, run_dir: Path,
         r = trial_fn(task, n)
         new += 1
         rate = r.get("rate_limit") or rate
-        write_atomic(trial_path(run_dir, task.id, n), json.dumps(r, indent=2))
-        write_results(run_dir, args)
         print_trial_line(r)
+        if r.get("transient"):
+            print(f"  not saved ({r['transient']}); a resumed run retries it", flush=True)
+            if r["transient"] == "usage":
+                print(f"STOPPED CLEANLY: usage limit hit; resume with: python scripts/eval.py ... --run {run_dir.name}")
+                break
+            continue
+        write_atomic(trial_path(run_dir, task.id, n), json.dumps(r, indent=2))
+        write_results(run_dir, args, keys)
+    write_results(run_dir, args, keys)
     return 0
 
 
@@ -813,15 +935,18 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--run must be a plain folder name")
 
     run_dir = RUNS_DIR / (args.run or f"{datetime.now():%Y%m%d-%H%M%S}-{args.toolset}-{args.split}")
+    prior = read_run_config(run_dir, args)
     with admin() as conn:
-        base = capture_baseline(conn)
+        base = capture_baseline(conn, prior["baseline_counts"] if prior else None)
+        if not prior:
+            write_run_config(run_dir, args, base)
         reset_stats(conn)
         try:
             run_loop(tasks, args, run_dir, lambda task, n: run_trial(task, n, args, conn, base, run_dir))
         except BaselineError as e:
             print(f"STOPPED: {e}", file=sys.stderr)
             return 2
-    trials = write_results(run_dir, args)
+    trials = write_results(run_dir, args, {(t.id, n) for t in tasks for n in range(1, args.trials + 1)})
     print(json.dumps(build_summary(trials), indent=2))
     print(f"results: {run_dir / 'results.json'}")
     return 0

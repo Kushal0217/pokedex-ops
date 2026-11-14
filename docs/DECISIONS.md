@@ -836,3 +836,73 @@ RAISE ToolError", on PR #21). It now matches only `state = 'active'`, as the
 fix: a failure in 1 of 5 runs, 1 of 10, and on the first try. After: 1
 failure in 200 runs, which could not be caught again to name the test, then
 0 in the last 160.
+
+## D29. The eval runner: headless Claude Code, graded by code (2026-11-14)
+
+**Decided by the user** (cloud session, 2026-11-14). An earlier session
+started this runner on the same branch; this one took it over and finished it.
+- **Engine: `claude -p` on the user's subscription login, not the API.** The
+  user chose "no separate bill". An API loop calling the handlers in process
+  (the original ARCHITECTURE decision 2) was the other option. It would have
+  been cheaper per run, but it needs an API key and doesn't exercise how
+  Claude Code loads the skill. Runs count against the plan's usage limits, so
+  the runner guards them (below).
+- **Model and effort:** `claude-sonnet-5-5` at `--effort medium`, fixed for v1
+  and v2.
+- **Trials:** 1 per task by default. The user wants a small number; the real
+  count is decided after the measured trial.
+- **Answers to questions:** a task's optional `answers:` list. The first
+  entry whose `when_all` words all appear in the agent's final message is
+  sent back with `--resume`, at most 3 times. With no match, the trial ends
+  and an unanswered question is recorded. The user chose this over "no
+  answers".
+- **`answer_matches`:** see `tasks/README.md`. The truth is computed after
+  setup and before the agent starts. Numbers are checked within a tolerance
+  (thousand/million understood); text must match as a whole word.
+- **Reset:** a targeted reset, verified against a baseline, never repaired
+  automatically (E5a). The earlier session's design.
+- **Resumable runs, a trial cap and a usage guard:**
+  - **`--run NAME` resumes,** skipping finished trials. `--max-trials N` caps
+    a run.
+  - **The usage guard** stops before a trial when the session's
+    `rate_limit_event` shows the 5-hour window at 90% or more, the weekly
+    window at 80% or more, or a status other than allowed.
+
+**Isolation, verified by a real probe** (Claude Code 2.1.325, one question):
+- **Only the right tools.** With `--tools Skill` and `--strict-mcp-config`
+  the agent had exactly `Skill` and the six `pokedex-ops` tools.
+- **Personal settings and skills stay out.** `--setting-sources project`
+  kept `~/.claude/skills` out.
+- **Built-in skills can't be removed,** short of `--bare`, which accepts only
+  an API key. So `--allowedTools` allows exactly `Skill(pokedex-ops)`.
+- **The agent didn't load the skill on its own** in the probe, so
+  `skill_loaded` is recorded per trial.
+- **Every trial checks its init event:** the exact tools, the MCP server
+  connected, the skill present, and no personal skill. A failure is
+  `isolation_failed` and is left out of every rate.
+
+**Defects fixed after review** (reviewer, 2026-11-14):
+- **A crash mid-trial skipped teardown and reset,** and a resumed run could
+  adopt leftover rows into its baseline. Fixed by a reset in a `finally`,
+  plus the baseline row counts stored in `config.json`.
+- **Failed sessions were scored as ordinary failures:** `is_error`, an
+  `error_*` subtype, or a non-zero exit. They're now `claude_error`.
+  Transient ones (timeout, usage limit) aren't saved, so a resume retries
+  them.
+- **The runner's own setup and truth queries showed in `check_health`'s top
+  queries,** which would have handed the agent the answer SQL. Query
+  statistics are now reset right before the agent starts.
+- **A timeout on Linux/macOS left the MCP server running.** It now kills the
+  whole process group.
+- **Reusing `--run` with another toolset, model or effort mixed results.**
+  It's now refused.
+- **Held-out answers were written to the trial files.** Held-out trials now
+  store only pass/fail per check, a reply count and no final text. Their
+  transcripts stay on disk and are private: only the task-author may read them.
+- **On Windows, cmd.exe re-parsed prompts.** Prompts and replies now go to
+  `claude -p` on stdin. Verified only with fakes so far; the measured trial
+  checks it for real.
+
+**Not yet verified for real:** stdin prompts, `Skill(pokedex-ops)` as an
+allow rule, and `--resume` with answers. The 2-task measured trial is the
+first real run.

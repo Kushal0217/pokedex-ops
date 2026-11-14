@@ -61,16 +61,17 @@ def stream(text: str = "done", *, init: dict | None = None, session: str = "s1",
 
 class FakeRunner:
     def __init__(self, outs: list[str]):
-        self.outs, self.cmds = list(outs), []
+        self.outs, self.cmds, self.stdins = list(outs), [], []
 
-    def __call__(self, cmd, cwd, timeout):
+    def __call__(self, cmd, cwd, timeout, stdin=""):
         self.cmds.append(cmd)
+        self.stdins.append(stdin)
         return self.outs.pop(0), 0, False
 
 
 def make_args(**kw) -> argparse.Namespace:
     d = dict(toolset="v1", model="m", effort="medium", timeout=5, trials=1, max_trials=None,
-             stop_at_5h=0.90, stop_at_7d=0.80, split="dev", vacuum="dirty")
+             stop_at_5h=0.90, stop_at_7d=0.80, split="dev", vacuum="dirty", tasks=None)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -89,19 +90,19 @@ def session(task, outs, tmp_path, **argkw):
 # --------------------------------------------------------------------------- G1 / G2
 
 def test_command_has_effort_and_only_the_v1_skill():
-    cmd = ev.build_command("x", "m", Path("c.json"), effort="high")
+    cmd = ev.build_command("m", Path("c.json"), effort="high")
     assert cmd[cmd.index("--effort") + 1] == "high"
     i = cmd.index("--allowedTools")
     assert cmd[i + 1:i + 3] == ["mcp__pokedex-ops", "Skill(pokedex-ops)"]
     assert cmd[cmd.index("--tools") + 1] == "Skill"
-    assert ev.build_command("x", "m", Path("c.json"))[ev.build_command("x", "m", Path("c.json")).index("--effort") + 1] == "medium"
+    assert (lambda c: c[c.index("--effort") + 1])(ev.build_command("m", Path("c.json"))) == "medium"
 
 
 def test_persistence_flag_follows_answers_and_resume_argv():
-    assert "--no-session-persistence" in ev.build_command("x", "m", Path("c"))
-    cmd = ev.build_command("hi", "m", Path("c"), resume="sid", persist=True)
+    assert "--no-session-persistence" in ev.build_command("m", Path("c"))
+    cmd = ev.build_command("m", Path("c"), resume="sid", persist=True)
     assert "--no-session-persistence" not in cmd
-    assert cmd[cmd.index("--resume") + 1] == "sid" and cmd[cmd.index("-p") + 1] == "hi"
+    assert cmd[cmd.index("--resume") + 1] == "sid" and "hi" not in cmd
 
 
 def test_defaults_trials_and_effort_on_the_command_line(capsys):
@@ -195,7 +196,7 @@ def test_reply_matches_case_insensitively_and_resumes_the_session(tmp_path):
     assert len(r.cmds) == 2
     first, second = r.cmds
     assert "--resume" not in first and "--no-session-persistence" not in first
-    assert second[second.index("--resume") + 1] == "abc" and second[second.index("-p") + 1] == "the teams table"
+    assert second[second.index("--resume") + 1] == "abc" and r.stdins == ["p", "the teams table"]
     assert "--no-session-persistence" not in second and "--allowedTools" in second
     assert not s.unanswered_question
 
@@ -256,7 +257,7 @@ def test_ground_truth_is_computed_before_the_agent_runs(tmp_path):
             teardown=["DELETE FROM types WHERE id = 99998"],
             checks=[{"answer_matches": {"query": "SELECT count(*) FROM types WHERE name = 'zz-truth'"}}])
 
-        def agent(cmd, cwd, timeout):  # a fake agent that changes the data under the grader
+        def agent(cmd, cwd, timeout, stdin=""):  # a fake agent that changes the data under the grader
             c.execute("DELETE FROM types WHERE id = 99998")
             return stream("There is 1 row."), 0, False
 
@@ -446,3 +447,201 @@ def test_dry_run_validates(monkeypatch, tmp_path):
     monkeypatch.setattr(ev, "load_tasks", lambda split, only=None: real(split, only, tasks_dir=tmp_path))
     with pytest.raises(SystemExit, match="bad.yaml"):
         ev.main(["--dry-run"])
+
+
+# --------------------------------------------------------------------------- review fixes F1-F8
+
+def test_prompt_goes_on_stdin_not_argv(tmp_path):
+    s, r = session(make_task(prompt="say \"hi\" & more"), [stream()], tmp_path)
+    assert r.stdins == ['say "hi" & more'] and not any("hi" in c for c in r.cmds[0])
+
+
+def test_dry_run_shows_stdin_marker(capsys):
+    ev.main(["--tasks", "slow-winner-history", "--dry-run"])
+    assert "<prompt on stdin>" in capsys.readouterr().out
+
+
+def with_result(text: str, **res) -> str:
+    lines = stream(text).splitlines()
+    r = json.loads(lines[-1])
+    r.update(res)
+    return "\n".join(lines[:-1] + [json.dumps(r)]) + "\n"
+
+
+@pytest.mark.parametrize("res", [{"is_error": True}, {"subtype": "error_max_turns"}])
+def test_error_result_is_claude_error(tmp_path, res):
+    s, _ = session(make_task(), [with_result("boom", **res)], tmp_path)
+    assert s.status == "claude_error" and s.transient is None
+
+
+def test_nonzero_exit_without_result_is_claude_error(tmp_path):
+    out = "\n".join(stream().splitlines()[:-2]) + "\n"
+    r = lambda *a: (out, 1, False)  # noqa: E731
+    s = ev.run_session(make_task(), make_args(), tmp_path, tmp_path / "m", r)
+    assert s.status == "claude_error"
+
+
+def test_usage_error_and_timeout_are_transient(tmp_path):
+    s, _ = session(make_task(), [with_result("You have hit your usage limit", is_error=True)], tmp_path)
+    assert s.transient == "usage" and s.status == "claude_error"
+    r = lambda *a: (stream(), None, True)  # noqa: E731
+    s = ev.run_session(make_task(), make_args(), tmp_path, tmp_path / "m", r)
+    assert s.transient == "timeout"
+
+
+def test_guard_tripping_before_a_reply_is_transient(tmp_path):
+    outs = [stream("sure?", rate=rate(five=0.95)), stream("done")]
+    s, r = session(make_task(answers=ANSWERS), outs, tmp_path)
+    assert s.transient == "usage" and len(r.cmds) == 1
+
+
+def test_transient_trials_are_not_written_and_usage_stops_the_run(tmp_path, capsys):
+    tasks = [make_task(id="a"), make_task(id="b"), make_task(id="c")]
+    kinds = {"a": "timeout", "b": "usage"}
+
+    def fn(task, n):
+        return dict(fake_trial(task, n), transient=kinds.get(task.id))
+    ev.run_loop(tasks, make_args(), tmp_path / "r", fn)
+    names = sorted(p.name for p in (tmp_path / "r" / "trials").iterdir())
+    assert names == []  # a timed out (continue), b usage (stop), c never started
+    ev.run_loop(tasks[2:], make_args(), tmp_path / "r", lambda t, n: fake_trial(t, n))
+    assert [p.name for p in (tmp_path / "r" / "trials").iterdir()] == ["c-t1.json"]
+
+
+def test_isolation_failure_stops_replies_and_cap_flags_unanswered(tmp_path):
+    bad = probe_init()
+    bad["tools"] = bad["tools"] + ["Bash"]
+    s, r = session(make_task(answers=ANSWERS), [stream("sure?", init=bad), stream("x")], tmp_path)
+    assert len(r.cmds) == 1 and s.replies == []
+    outs = [stream("sure?", session="x") for _ in range(4)]
+    s, _ = session(make_task(answers=ANSWERS), outs, tmp_path)
+    assert s.unanswered_question and len(s.replies) == 3
+    outs = [stream("sure?", session="x")] * 3 + [stream("all fine")]
+    s, _ = session(make_task(answers=ANSWERS), outs, tmp_path)
+    assert not s.unanswered_question
+    outs = [stream("sure?", session="x")] * 3 + [stream("What now?")]
+    s, _ = session(make_task(answers=ANSWERS), outs, tmp_path)
+    assert s.unanswered_question
+
+
+def test_transcript_is_written_before_grading(tmp_path):
+    path = tmp_path / "t.jsonl"
+    session_out = stream("sure?")
+    r = FakeRunner([session_out, stream("done")])
+    ev.run_session(make_task(answers=ANSWERS), make_args(), tmp_path, tmp_path / "m", r, transcript_path=path)
+    assert path.read_text().count('"type": "result"') == 2
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+def test_timeout_kills_the_whole_process_group(tmp_path):
+    import os
+    import time
+    pidfile = tmp_path / "child.pid"
+    code = ("import subprocess,sys,time;"
+            f"c=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
+            f"open(r'{pidfile}','w').write(str(c.pid));time.sleep(60)")
+    t0 = time.monotonic()
+    out, rc, timed_out = ev.run_claude([sys.executable, "-c", code], tmp_path, 4, "")
+    assert timed_out and pidfile.exists()
+    assert time.monotonic() - t0 < 20, "run_claude waited for the surviving child"
+    pid = int(pidfile.read_text())
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        pytest.fail("the grandchild survived the timeout")
+
+
+def test_run_claude_delivers_stdin(tmp_path):
+    out, rc, timed_out = ev.run_claude([sys.executable, "-c", "import sys;print(sys.stdin.read().upper())"],
+                                       tmp_path, 20, 'héllo "q" & x')
+    assert out.strip() == 'HÉLLO "Q" & X' and rc == 0 and not timed_out
+
+
+def test_run_config_blocks_a_different_toolset_model_or_effort(tmp_path):
+    base = ev.Baseline(frozenset(), {"t": 1})
+    ev.write_run_config(tmp_path, make_args(), base)
+    assert ev.read_run_config(tmp_path, make_args())["baseline_counts"] == {"t": 1}
+    for kw in ({"toolset": "v2"}, {"model": "x"}, {"effort": "high"}):
+        with pytest.raises(SystemExit, match="cannot resume"):
+            ev.read_run_config(tmp_path, make_args(**kw))
+    assert ev.read_run_config(tmp_path / "new", make_args()) is None
+
+
+def test_summary_only_counts_trials_in_the_plan_and_corrupt_files_are_named(tmp_path):
+    tasks = [make_task(id="a"), make_task(id="b")]
+    ev.run_loop(tasks, make_args(), tmp_path / "r", lambda t, n: fake_trial(t, n))
+    ev.run_loop(tasks[:1], make_args(), tmp_path / "r", lambda t, n: fake_trial(t, n))
+    res = json.loads((tmp_path / "r" / "results.json").read_text())
+    assert [t["task"] for t in res["trials"]] == ["a"]
+    (tmp_path / "r" / "trials" / "b-t1.json").write_text("{not json")
+    with pytest.raises(SystemExit, match="b-t1.json"):
+        ev.load_trials(tmp_path / "r")
+
+
+@pytest.mark.db
+def test_resume_refuses_leftover_rows_as_baseline():
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as c:
+        good = ev.capture_baseline(c).counts
+        c.execute("INSERT INTO types (id, name) VALUES (99997, 'zz-left')")
+        try:
+            with pytest.raises(ev.BaselineError, match="types"):
+                ev.capture_baseline(c, good)
+        finally:
+            c.execute("DELETE FROM types WHERE id = 99997")
+
+
+@pytest.mark.db
+def test_failed_trial_still_runs_teardown_and_reset(tmp_path):
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as c:
+        base = ev.capture_baseline(c)
+        (tmp_path / "transcripts").mkdir()
+        task = make_task(setup=["INSERT INTO types (id, name) VALUES (99996, 'zz-fail')",
+                                "CREATE INDEX zz_eval_fail_idx ON public.types (name, id)"],
+                         teardown=["DELETE FROM types WHERE id = 99996"],
+                         checks=[{"answer_matches": {"query": "SELECT 1"}}])
+
+        def boom(*a):
+            raise FileNotFoundError("claude")
+        try:
+            with pytest.raises(FileNotFoundError):
+                ev.run_trial(task, 1, make_args(), c, base, tmp_path, runner=boom)
+            ev.verify_baseline(c, base)  # row deleted, index dropped
+        finally:
+            c.execute("DELETE FROM types WHERE id = 99996")
+            c.execute("DROP INDEX IF EXISTS public.zz_eval_fail_idx")
+
+
+@pytest.mark.db
+def test_stats_reset_after_setup_and_truth_queries(tmp_path):
+    seen = {}
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as c:
+        base = ev.capture_baseline(c)
+        (tmp_path / "transcripts").mkdir()
+        task = make_task(setup=["SELECT 1 AS zz_setup_marker"],
+                         checks=[{"answer_matches": {"query": "SELECT 7 AS zz_truth_marker"}}])
+
+        def agent(cmd, cwd, timeout, stdin=""):
+            seen["n"] = c.execute("SELECT count(*) FROM pg_stat_statements WHERE query LIKE ANY(%s)",
+                                  (["%zz_setup_marker%", "%zz_truth_marker%"],)).fetchone()[0]
+            return stream("7"), 0, False
+        ev.run_trial(task, 1, make_args(), c, base, tmp_path, runner=agent)
+    assert seen["n"] == 0
+
+
+@pytest.mark.db
+def test_heldout_trial_stores_no_check_reasons_or_reply_text(tmp_path):
+    with psycopg.connect(config.ADMIN_DSN, autocommit=True) as c:
+        base = ev.capture_baseline(c)
+        (tmp_path / "transcripts").mkdir()
+        task = make_task(split="heldout", answers=ANSWERS,
+                         checks=[{"answer_matches": {"query": "SELECT 'zzsecretanswer'"}}])
+        r = ev.run_trial(task, 1, make_args(), c, base, tmp_path,
+                         runner=FakeRunner([stream("sure?"), stream("zzsecretanswer")]))
+    assert r["checks"] == [{"check": "answer_matches", "passed": True}]
+    assert "replies" not in r and r["reply_count"] == 1
+    assert "the teams table" not in json.dumps(r) and "secret" not in json.dumps(r)
