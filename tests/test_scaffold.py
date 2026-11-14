@@ -13,3 +13,17 @@ def test_v1_toolset_shape():
     for t in ts.tools:
         assert t.input_schema["type"] == "object"
         assert callable(t.handler)
+
+
+def test_loaded_skill_is_the_newest_skill_version():
+    """Claude Code loads .claude/skills/pokedex-ops/; the eval loads skills/vN/. They must not
+    drift apart, so the loaded copy must equal the newest version (DECISIONS D27)."""
+    from server import config
+
+    versions = sorted((config.ROOT / "skills").glob("v*"), key=lambda p: int(p.name[1:]))
+    newest, live = versions[-1], config.ROOT / ".claude" / "skills" / "pokedex-ops"
+
+    def files(root):
+        return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+    assert files(live) == files(newest)
