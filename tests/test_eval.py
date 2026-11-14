@@ -73,7 +73,7 @@ def test_build_command_flags():
     assert cmd[cmd.index("--model") + 1] == "claude-sonnet-5-5"
     assert cmd[cmd.index("--tools") + 1] == "Skill"
     i = cmd.index("--allowedTools")
-    assert cmd[i + 1:i + 3] == ["mcp__pokedex-ops", "Skill"]
+    assert cmd[i + 1:i + 3] == ["mcp__pokedex-ops", "Skill(pokedex-ops)"]
     for flag in ("--strict-mcp-config", "--no-session-persistence", "--verbose"):
         assert flag in cmd
     assert cmd[cmd.index("--setting-sources") + 1] == "project"
