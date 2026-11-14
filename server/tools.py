@@ -192,7 +192,7 @@ def explain_query(sql: str) -> dict[str, Any]:
     and a note says so. Output: {"plan", "analyzed"}, plus "note" on fallback.
     """
     body = _explainable_body(sql, "explain_query")
-    started = time.monotonic()
+    started = time.perf_counter()
     try:
         return {"plan": _explain(body, "(ANALYZE, BUFFERS)"), "analyzed": True}
     except ToolError as err:
@@ -201,7 +201,7 @@ def explain_query(sql: str) -> dict[str, Any]:
         # sooner than the timeout, and someone wanted that query stopped. The
         # elapsed time tells them apart without matching (translated) message text.
         timed_out = (isinstance(err.__cause__, psycopg.errors.QueryCanceled)
-                     and (time.monotonic() - started) * 1000 >= config.STATEMENT_TIMEOUT_MS)
+                     and (time.perf_counter() - started) * 1000 >= config.STATEMENT_TIMEOUT_MS)
         if not timed_out:
             raise
     seconds = config.STATEMENT_TIMEOUT_MS / 1000
