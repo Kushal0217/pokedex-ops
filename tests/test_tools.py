@@ -267,7 +267,10 @@ def test_explain_query_does_not_fall_back_when_another_session_cancels(monkeypat
             for _ in range(50):
                 rows = a.execute(
                     "SELECT pg_cancel_backend(pid) FROM pg_stat_activity "
-                    "WHERE query LIKE %s AND pid <> pg_backend_pid()", ("%pg_sleep(5)%",)).fetchall()
+                    # Only a running query: an idle session (one another test cancelled) still
+                    # shows its last query here, and cancelling it would cancel nothing.
+                    "WHERE query LIKE %s AND state = 'active' AND pid <> pg_backend_pid()",
+                    ("%pg_sleep(5)%",)).fetchall()
                 if any(ok for (ok,) in rows):
                     cancelled.append(True)
                     return

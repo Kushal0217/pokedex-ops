@@ -178,12 +178,12 @@ class Cursor:
         self._started: float | None = None
 
     def execute(self, sql: str, params: Sequence[Any] | None = None) -> Cursor:
-        self._started = time.monotonic()  # tells a timeout from another session's cancel
+        self._started = time.perf_counter()  # tells a timeout from another session's cancel
         self._cur.execute(sql, params, prepare=True)
         return self
 
     def _elapsed_ms(self) -> float | None:
-        return None if self._started is None else (time.monotonic() - self._started) * 1000
+        return None if self._started is None else (time.perf_counter() - self._started) * 1000
 
     def fetchone(self) -> tuple[Any, ...] | None:
         return self._cur.fetchone()
@@ -285,15 +285,15 @@ def create_index(sql: str) -> dict[str, Any]:
     pool = _pool("write")
     conn = _checkout(pool, setup)
     try:
-        started = time.monotonic()
+        started = time.perf_counter()
         try:
             conn.execute(sql, prepare=True)
         except psycopg.Error as e:
-            raise _write_error(e, conn, verdict, (time.monotonic() - started) * 1000) from e
+            raise _write_error(e, conn, verdict, (time.perf_counter() - started) * 1000) from e
         return {
             "table": verdict.table,
             "concurrently": verdict.concurrently,
-            "elapsed_ms": round((time.monotonic() - started) * 1000),
+            "elapsed_ms": round((time.perf_counter() - started) * 1000),
         }
     finally:
         _release(pool, conn)
