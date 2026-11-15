@@ -2,8 +2,8 @@
 
 | Slice | Implementation | User review |
 | --- | --- | --- |
-| 1 | Complete, awaiting visual review | Pending |
-| 2 | Not started | Pending |
+| 1 | Complete | Approved 2026-11-15 ("Sure make slice two"), after three art revisions |
+| 2 | Complete | Pending |
 | 3 | Not started | Pending |
 | 4 | Not started | Pending |
 | 5 | Not started | Pending |
@@ -12,7 +12,61 @@
 | 8 | Not started | Pending |
 | 9 | Not started | Pending |
 
-**Next action:** wait for Kushal's explicit approval of the visual direction (or requested changes). Then start Slice 2.
+**Next action:** start Slice 3 (town and atmosphere). The GitHub repository still has to be created by
+Kushal before anything can be pushed; all commits are local.
+
+## Slice 2 — One complete exploration loop
+
+**Built:**
+- Map to interior to menu loop: the "Ramen shop" label (or the building itself) opens an illustrated interior
+  (`src/features/food/RamenInterior.tsx`); its wall menu board is a real button that opens the favorites menu.
+- Shared scene/dialog behaviour in `src/shared/ui/SceneDialog.tsx` (Radix Dialog): focus trap, Escape, visible
+  close control, inert and scroll-locked background, focus returned to the launching control.
+- "Just the facts" (`src/features/facts/`): persistent button in the sticky header and inside every scene
+  header; plain view with resume download/open and email, phone, LinkedIn and GitHub links. `#facts` in the
+  URL opens it directly. `public/resume.pdf` is the selected resume, unchanged.
+- Optional avatar movement (Kushal asked for it): W A S D anywhere, arrow keys while the map has focus, or
+  tap/click the ground. Walk frames for front, back and side. Walking up into the doorway enters the shop.
+  Position is written straight to the element; React re-renders only on pose changes.
+- Reduced motion: no walk animation frames, tap-to-walk places the avatar instantly, dialogs open without
+  transitions. All content stays reachable.
+
+**Checks run (cloud session, 2026-11-15):**
+
+| Check | Result |
+| --- | --- |
+| `npm run build` | Passed. JS 90.9 kB gzip, CSS 4.3 kB gzip. |
+| `npm run check:build` | Passed: no private files in `dist/`; `dist/resume.pdf` identical to `source-assets/resume.pdf`. |
+| `node scripts/check-site.mjs` against `vite preview` | Passed: 224 checks over desktop 1280x800, phone 390x844 (touch), narrow phone 320x568 (touch), reduced motion, and a short 1024x520 window. |
+
+What the script exercises: enter by click, tap and keyboard; menu shows Kasama / Chicago with no rating or
+date; Escape closes only the top layer; focus returns to the menu board, then to the place label, then to
+whichever control opened the facts view; Tab stays inside the open dialog; the map is hidden from assistive
+tech and not clickable under a modal; map scroll position is unchanged after closing; every facts link has the
+expected target and the served resume matches byte for byte; W A S D and arrow keys move the avatar, arrows do
+not steer when focus is outside the map, a held key stops on window blur, the avatar cannot leave the scene;
+tapping the ground walks there; selecting the building opens it at once; walking into the doorway enters; no
+console errors; no horizontal overflow in any state.
+
+**Defects found and fixed during checks:**
+- Under reduced motion one Escape press could close two stacked dialogs; each press now closes one layer.
+- Returning focus scrolled the map in a short window; focus is now restored without scrolling.
+- The sticky header and map label drew above open dialogs; dialogs now sit on top.
+- Tap-to-walk stopped at the menu stand; the avatar now detours around it.
+
+**Assumptions recorded:**
+- "Sure" was read as yes to keyboard walking as well as click-to-walk.
+- GSAP is not installed yet: the walk needs per-frame collision, and dialog transitions are two CSS keyframes.
+  It joins when a coordinated timeline is first needed (badge case, Slice 4).
+- The interior uses a fixed warm palette in all lighting modes (PRD: indoor panels may share one readable surface).
+- The Naruto cameo is not in the interior yet; it belongs to Slice 5.
+- The lighting selector is still the temporary preview; production Auto/Day/Evening/Night is Slice 3.
+
+**Limitations:**
+- Not tested on a physical phone or in Safari/Firefox; checks ran in headless Chromium only.
+- Screen-reader behaviour was checked through roles, names and `aria-hidden`, not with a screen reader.
+- Tap-to-walk pathing is a simple detour that suits this one-obstacle yard; the full town (Slice 3) will need more.
+- The email address and phone number are published in the facts view, as the PRD specifies.
 
 ## Slice 1 — Visual foundation
 

@@ -1,8 +1,6 @@
-import { PixelSpriteGroup } from './PixelSprite';
-import { kushalSprite } from './kushalSprite';
 
 /**
- * Ramen-shop exterior with Kushal's sprite standing outside.
+ * Ramen-shop exterior. Kushal's sprite is a separate movable layer (Avatar).
  *
  * Original illustrated scenery (flat shapes, ink outline, light from the upper
  * left) with pixel-scale details. Every colour is a theme token, and the
@@ -11,8 +9,8 @@ import { kushalSprite } from './kushalSprite';
  *
  * Purely decorative: labels and controls are real HTML layered over it.
  */
-const VIEW_W = 480;
-const VIEW_H = 340;
+export const VIEW_W = 480;
+export const VIEW_H = 340;
 /** Size of one sprite pixel in scene units; the shared sprite scale for the town. */
 export const SPRITE_PX = 1.75;
 
@@ -328,10 +326,6 @@ export function RamenShopExterior({ className }: { className?: string }) {
         </g>
         <rect x={-7} y={25} width={5} height={2} fill="var(--lantern)" />
       </g>
-
-      {/* ---- Kushal ---- */}
-      <ellipse cx={227} cy={317} rx={20} ry={5} fill="var(--cast-shadow)" opacity="var(--cast-shadow-o)" />
-      <PixelSpriteGroup sprite={kushalSprite} x={205} y={245} px={SPRITE_PX} />
     </svg>
   );
 }

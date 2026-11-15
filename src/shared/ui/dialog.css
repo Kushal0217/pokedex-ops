@@ -1,0 +1,142 @@
+.dialog-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  background: rgb(22 15 26 / 0.66);
+  animation: dialog-fade 160ms var(--ease);
+}
+
+.dialog {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--paper-ink);
+  border: var(--border-w) solid var(--outline);
+  border-radius: var(--radius);
+  box-shadow: var(--hard-shadow);
+  overflow: hidden;
+  animation: dialog-in 200ms var(--ease);
+}
+
+.dialog--narrow {
+  width: min(520px, calc(100vw - 24px));
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+.dialog__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-bottom: var(--border-w) solid var(--outline);
+  background: var(--indigo);
+  color: var(--accent-ink);
+}
+
+.dialog--menu .dialog__head {
+  background: var(--accent);
+}
+
+.dialog--plain .dialog__head {
+  background: var(--paper-2);
+  color: var(--paper-ink);
+}
+
+.dialog__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+}
+
+.dialog__close,
+.dialog__action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 var(--sp-3);
+  background: var(--paper);
+  color: var(--paper-ink);
+  border: var(--border-w) solid var(--outline);
+  border-radius: var(--radius);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dialog__close > span[aria-hidden] {
+  font-size: 1.5rem;
+}
+
+.dialog__close:hover,
+.dialog__action:hover {
+  background: var(--paper-2);
+}
+
+.dialog__head :focus-visible {
+  outline-color: #ffd978;
+}
+
+.dialog--plain .dialog__head :focus-visible {
+  outline-color: #1f4fd1;
+}
+
+.dialog__body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dialog__body :focus-visible {
+  outline-color: #1f4fd1;
+}
+
+@keyframes dialog-fade {
+  from { opacity: 0; }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, -48%); }
+}
+
+@media (max-width: 520px) {
+  .dialog__title {
+    font-size: 1.25rem;
+  }
+  .dialog__head {
+    gap: var(--sp-2);
+    padding-left: var(--sp-3);
+  }
+  /* keep the close control compact; its label stays available to assistive tech */
+  .dialog__close-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .dialog__close {
+    padding: 0;
+    justify-content: center;
+  }
+}

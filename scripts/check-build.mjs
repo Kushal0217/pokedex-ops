@@ -16,4 +16,7 @@ for (const file of walk('dist')) {
   if (/\.(png|jpe?g|webp|heic)$/i.test(file)) problems.push(`${file}: unexpected raster image`);
 }
 if (problems.length) { console.error('FAILED\n' + problems.join('\n')); process.exit(1); }
+const resume = 'dist/resume.pdf';
+if (!existsSync(resume) || sha(resume) !== sha('source-assets/resume.pdf')) problems.push('dist/resume.pdf is missing or differs from source-assets/resume.pdf');
+if (problems.length) { console.error('FAILED\n' + problems.join('\n')); process.exit(1); }
 console.log(`OK: ${walk('dist').length} files in dist/, none private (${privateHashes.size} private file(s) compared by hash).`);
