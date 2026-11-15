@@ -84,6 +84,7 @@ async function run(name, contextOptions, { shots = false } = {}) {
   // Wait until the view has taken focus, as a person would before pressing a key.
   await page.waitForFunction(() => document.activeElement?.closest('[role="dialog"]')?.querySelector('h2')?.textContent === 'Just the facts');
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
   check(!(await factsDialog.isVisible()) && (await menu.isVisible()), `${name}: Escape on facts should close only facts`);
   check((await focusedText(page)) === 'Just the facts', `${name}: focus not returned to the facts launcher in the menu`);
 
@@ -93,6 +94,7 @@ async function run(name, contextOptions, { shots = false } = {}) {
 
   // Escape closes the menu only; focus returns to the menu board.
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(100); // focus is handed back on the next tick
   check(!(await menu.isVisible()) && (await interior.isVisible()), `${name}: Escape should close the menu and keep the interior`);
   check((await focusedText(page)).startsWith('Menu'), `${name}: focus not returned to the menu board (got "${await focusedText(page)}")`);
 
@@ -123,6 +125,7 @@ async function run(name, contextOptions, { shots = false } = {}) {
   await page.waitForTimeout(350);
   await shot('facts');
   await page.getByRole('button', { name: 'Close' }).click();
+  await page.waitForTimeout(100);
   check((await focusedText(page)).startsWith('Just the facts'), `${name}: focus not returned to the header facts button`);
 
   // Optional walking.
