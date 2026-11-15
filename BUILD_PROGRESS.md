@@ -6,17 +6,53 @@
 | 2 | Complete | Reviewed 2026-11-15: hood down and smaller head requested and done |
 | 3 | Complete | Pending |
 | 4 | Complete | Pending |
-| 5 | Not started | Pending |
+| 5 | Complete | Pending |
 | 6 | Not started | Pending |
 | 7 | Not started | Pending |
 | 8 | Not started | Pending |
 | 9 | Not started | Pending |
 
-**Next action:** start Slice 5 (food content and the ramen scene cameo).
+**Next action:** start Slice 6 (airport and CSV pipeline). The real flight CSV has not been supplied, so the airport will ship with its deliberate empty state.
 
 **Where the code is saved:** Kushal's new GitHub repository could not be reached from the build session
 (not visible to it under the names tried). Until it is attached, every commit is also pushed as a backup to
 branch `claude/intelligent-tesla-tb3db1` of `Kushal0217/pokedex-ops`.
+
+## Slice 5 — Food content and ramen scene
+
+**Built:**
+- The food snapshot stays in `src/features/food/restaurants.ts`. Kasama (Chicago) is the only entry: no
+  further recommendations, ratings, notes or links were supplied, and none were invented. The Beli link is
+  omitted because no profile URL exists yet; setting `beliProfileUrl` shows it.
+- Menu presentation finalised: every entry is readable in one list; rating, note and a "Visit …" link render
+  only when present; links must start with `https://` or they are dropped; no "last updated" text anywhere.
+- Fan-art cameo in the ramen interior (`cameoSprites.ts`): Naruto, Iruka and Kakashi seated at the counter,
+  seen from behind, and the shop's owner behind it. Drawn from scratch as pixel sprites at the town's sprite
+  scale; no official art, logos or village symbols. The cameo exists only inside this scene.
+- The fictional shop and the real list are labelled apart in both the interior caption and the menu.
+
+**Checks run (cloud session, 2026-11-15):**
+
+| Check | Result |
+| --- | --- |
+| `npm run build`, `npm run check:build` | Passed. The build check also rejects food fixture text in `dist/`. |
+| `DEV_URL=http://localhost:5173/ node scripts/check-site.mjs` | Passed: 542 checks. |
+
+Added for this slice: the cameo caption and "this shop is fictional" are visible; the menu has exactly one
+entry, no rating, no date and no link; the real list is labelled apart from the fictional shop. With the
+dev-only `?fixture=food` data at 360px: the menu grows to four entries without any map or component change,
+ratings appear only on the two entries that have one, the only link shown is the valid `https://` one (a
+`javascript:` URL in the fixture is dropped), nothing overflows and the last entry is reachable. The menu
+button was clicked and tapped with the cameo in place, so the art does not block it.
+
+**Assumptions recorded:**
+- The guests are drawn from behind so the cameo stays small and no faces need inventing; headbands are plain
+  cloth with no symbol.
+- Restaurant links are a separate "Visit …" line rather than making the name a link.
+
+**Limitations:**
+- Ratings, notes and links are only exercised with placeholder fixture data, which never ships.
+- Whether the cameo "fits" is a visual call for Kushal.
 
 ## Slice 4 — Personal project collection
 

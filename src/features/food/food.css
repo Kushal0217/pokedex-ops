@@ -9,6 +9,7 @@
 }
 
 .menu__kicker {
+  margin: 0;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 1.25rem;
@@ -43,8 +44,21 @@
   line-height: 1.2;
 }
 
-.menu__name a {
-  color: inherit;
+.menu__line {
+  flex-wrap: wrap;
+}
+
+.menu__name {
+  overflow-wrap: anywhere;
+}
+
+.menu__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: #1c46b8;
+  font-weight: 700;
+  text-underline-offset: 3px;
 }
 
 .menu__leader {

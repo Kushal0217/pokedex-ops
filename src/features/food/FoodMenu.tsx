@@ -1,5 +1,5 @@
 import './food.css';
-import { beliProfileUrl, restaurants } from './restaurants';
+import { beliProfileUrl, restaurants, safeUrl } from './restaurants';
 
 /**
  * Kushal's real-world food favourites, as shown on the ramen shop's menu.
@@ -8,29 +8,29 @@ import { beliProfileUrl, restaurants } from './restaurants';
 export function FoodMenu() {
   return (
     <div className="menu__body">
-      <p className="menu__kicker">Kushal’s food favorites</p>
-      <p className="menu__note">Real restaurants, served from a fictional ramen counter.</p>
+      <h3 className="menu__kicker">Kushal’s food favorites</h3>
+      <p className="menu__note">Real restaurants Kushal recommends. They are separate from this fictional ramen shop.</p>
 
       <ul className="menu__list">
-        {restaurants.map((r) => (
-          <li key={r.id} className="menu__item">
-            <div className="menu__line">
-              <span className="menu__name">
-                {r.url ? (
-                  <a href={r.url} target="_blank" rel="noreferrer">
-                    {r.name}
-                  </a>
-                ) : (
-                  r.name
-                )}
-              </span>
-              <span className="menu__leader" aria-hidden="true" />
-              <span className="menu__city">{r.city}</span>
-            </div>
-            {r.rating !== undefined && <p className="menu__meta">Kushal’s rating: {r.rating}</p>}
-            {r.note && <p className="menu__meta">{r.note}</p>}
-          </li>
-        ))}
+        {restaurants.map((r) => {
+          const url = safeUrl(r.url);
+          return (
+            <li key={r.id} className="menu__item">
+              <div className="menu__line">
+                <span className="menu__name">{r.name}</span>
+                <span className="menu__leader" aria-hidden="true" />
+                <span className="menu__city">{r.city}</span>
+              </div>
+              {r.rating !== undefined && <p className="menu__meta">Kushal’s rating: {r.rating}</p>}
+              {r.note && <p className="menu__meta">{r.note}</p>}
+              {url && (
+                <a className="menu__link" href={url} target="_blank" rel="noreferrer">
+                  Visit {r.name}
+                </a>
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       <p className="menu__foot">More picks get added as Kushal shares them.</p>

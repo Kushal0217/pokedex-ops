@@ -17,7 +17,27 @@ export interface Restaurant {
   url?: string;
 }
 
-export const restaurants: readonly Restaurant[] = [{ id: 'kasama', name: 'Kasama', city: 'Chicago' }];
+const entries: readonly Restaurant[] = [{ id: 'kasama', name: 'Kasama', city: 'Chicago' }];
+
+/** Only safe web links are shown; anything else is dropped rather than shown broken. */
+export const safeUrl = (url: string | undefined) => (url && /^https:\/\/\S+$/.test(url) ? url : undefined);
+
+/**
+ * Development only: `?fixture=food` on the dev server appends placeholder
+ * entries to exercise ratings, notes and links. They are clearly labelled,
+ * never part of a production build, and not real recommendations.
+ */
+function withDevFixture(list: readonly Restaurant[]): readonly Restaurant[] {
+  if (!import.meta.env.DEV || new URLSearchParams(window.location.search).get('fixture') !== 'food') return list;
+  return [
+    ...list,
+    { id: 'fixture-1', name: 'Layout fixture A (not a real restaurant)', city: 'Nowhere', rating: 8.5, note: 'Placeholder note used only to test the layout.', url: 'https://example.com/' },
+    { id: 'fixture-2', name: 'Layout fixture B (not a real restaurant)', city: 'Nowhere', note: 'Placeholder with a note and no rating.' },
+    { id: 'fixture-3', name: 'Layout fixture C (not a real restaurant)', city: 'A city with a deliberately long name', rating: 10, url: 'javascript:alert(1)' },
+  ];
+}
+
+export const restaurants: readonly Restaurant[] = withDevFixture(entries);
 
 /** "Find me on Beli" profile link. Pending from Kushal; the action is omitted while undefined. */
-export const beliProfileUrl: string | undefined = undefined;
+export const beliProfileUrl: string | undefined = safeUrl(undefined);

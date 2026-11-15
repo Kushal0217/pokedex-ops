@@ -151,6 +151,10 @@ async function run(name, contextOptions, { shots = false } = {}) {
   await page.waitForTimeout(350);
   await shot('interior');
 
+  // The cameo is labelled as fan art and the fictional shop is kept apart from the real restaurants.
+  check(await interior.getByText(/Fan art: Naruto, Iruka and Kakashi/).isVisible(), `${name}: cameo caption missing`);
+  check(await interior.getByText(/This shop is fictional/).isVisible(), `${name}: interior does not say the shop is fictional`);
+
   // Background is not interactive under the modal.
   check(await page.evaluate(() => { return !!document.querySelector('main').closest('[aria-hidden="true"], [inert]'); }), `${name}: map not hidden from assistive tech under modal`);
   const hit = await page.evaluate(() => { const b = document.querySelector('.facts-button').getBoundingClientRect(); const el = document.elementFromPoint(b.left + 5, b.top + 5); return !!el?.closest('.facts-button'); });
@@ -162,7 +166,10 @@ async function run(name, contextOptions, { shots = false } = {}) {
   const menu = page.getByRole('dialog', { name: 'Menu' });
   check(await menu.isVisible(), `${name}: menu did not open`);
   check(await menu.getByText('Kasama').isVisible() && await menu.getByText('Chicago').isVisible(), `${name}: Kasama / Chicago not readable`);
-  check((await menu.getByText(/rating|updated/i).count()) === 0, `${name}: menu shows a rating or update date`);
+  check((await menu.getByText(/rating|updated|as of/i).count()) === 0, `${name}: menu shows a rating or update date`);
+  check((await menu.getByRole('link').count()) === 0, `${name}: menu shows a link although none was supplied (Beli or restaurant)`);
+  check((await menu.locator('.menu__item').count()) === 1, `${name}: expected Kasama as the only entry`);
+  check(await menu.getByText(/separate from this fictional ramen shop/).isVisible(), `${name}: real list is not labelled apart from the fictional shop`);
   await page.waitForTimeout(350);
   await shot('menu');
 
@@ -362,6 +369,23 @@ if (process.env.DEV_URL) {
     check((await viewer.locator('.project-list__item').count()) === 11, `${name}: list and badges disagree on count`);
     check((await viewer.locator('.project-list').getByRole('link', { name: 'Source code' }).count()) === 4, `${name}: links not available directly in the list`);
     await page.screenshot({ path: `${outDir}/${name}-list.png` });
+    await page.close();
+  }
+  // Food data drives the menu: ratings, notes and safe links appear only where supplied.
+  {
+    const page = await browser.newPage({ viewport: { width: 360, height: 640 } });
+    await page.goto(process.env.DEV_URL + '?fixture=food', { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /^Ramen shop/ }).click();
+    await page.getByRole('button', { name: /^Menu/ }).click();
+    const menu = page.getByRole('dialog', { name: 'Menu' });
+    check((await menu.locator('.menu__item').count()) === 4, 'fixture-food: data change did not change the menu');
+    check((await menu.locator('.menu__item').first().textContent()).startsWith('Kasama'), 'fixture-food: Kasama not first');
+    check((await menu.getByText(/Kushal’s rating:/).count()) === 2, 'fixture-food: ratings should show only for the two entries that have one');
+    const hrefs = await menu.getByRole('link').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    check(JSON.stringify(hrefs) === JSON.stringify(['https://example.com/']), `fixture-food: links shown are ${JSON.stringify(hrefs)} (unsafe or missing links must be omitted)`);
+    check((await overflow(page)) <= 0, 'fixture-food: horizontal overflow');
+    await menu.locator('.menu__item').last().scrollIntoViewIfNeeded();
+    check(await menu.locator('.menu__item').last().isVisible(), 'fixture-food: last entry not reachable');
     await page.close();
   }
 } else {

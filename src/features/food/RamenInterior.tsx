@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import { PixelSpriteGroup } from '../world/PixelSprite';
 import { kushalFrame } from '../world/kushalSprite';
+import { irukaSprite, kakashiSprite, narutoSprite, ownerSprite } from './cameoSprites';
 
 const INK = { stroke: '#33241f', strokeWidth: 3, strokeLinejoin: 'round' as const };
 const THIN = { stroke: '#33241f', strokeWidth: 2, strokeLinejoin: 'round' as const };
@@ -47,7 +48,8 @@ function Bowl({ x, y }: { x: number; y: number }) {
 }
 
 /**
- * Ramen-shop interior: an original illustrated counter scene on a fixed warm
+ * Ramen-shop interior: an original illustrated counter scene with a small
+ * Naruto fan-art cameo (see cameoSprites.ts), on a fixed warm
  * indoor palette, so it reads the same in every lighting mode. The wall menu
  * board is a real HTML button layered over the art.
  */
@@ -116,6 +118,9 @@ export const RamenInterior = forwardRef<HTMLButtonElement, { onOpenMenu: () => v
             <rect x={34} y={130} width={6} height={24} fill="#b9bcc6" />
           </g>
 
+          {/* the shop's owner, behind the counter (fan art) */}
+          <PixelSpriteGroup sprite={ownerSprite} x={78.5} y={122} px={1.75} />
+
           {/* counter */}
           <rect x={-4} y={160} width={488} height={18} fill="#c58a5a" {...INK} />
           <rect x={0} y={163} width={480} height={3} fill="#dba777" />
@@ -151,6 +156,11 @@ export const RamenInterior = forwardRef<HTMLButtonElement, { onOpenMenu: () => v
           <Stool x={206} />
           <Stool x={316} />
 
+          {/* guests at the counter, seen from behind (fan art) */}
+          <PixelSpriteGroup sprite={narutoSprite} x={78.5} y={174} px={1.75} />
+          <PixelSpriteGroup sprite={irukaSprite} x={188.5} y={174} px={1.75} />
+          <PixelSpriteGroup sprite={kakashiSprite} x={298.5} y={174} px={1.75} />
+
           {/* Kushal, at the counter */}
           <ellipse cx={398} cy={272} rx={20} ry={5} fill="#33241f" opacity={0.25} />
           <PixelSpriteGroup sprite={kushalFrame('up', 0)} x={377} y={199} px={1.75} />
@@ -161,7 +171,10 @@ export const RamenInterior = forwardRef<HTMLButtonElement, { onOpenMenu: () => v
           <small>read the favorites</small>
         </button>
       </div>
-      <p className="interior__caption">A small ramen counter. The menu board lists Kushal’s real food favorites.</p>
+      <p className="interior__caption">
+        Fan art: Naruto, Iruka and Kakashi at the counter with the ramen shop’s owner. This shop is fictional; the menu
+        board lists Kushal’s real food favorites.
+      </p>
     </>
   );
 });
