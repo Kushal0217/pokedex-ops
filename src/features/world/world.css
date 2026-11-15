@@ -1,0 +1,90 @@
+.scene {
+  position: relative;
+  border: var(--border-w) solid var(--outline);
+  border-radius: var(--radius);
+  box-shadow: var(--hard-shadow);
+  overflow: hidden;
+  background: var(--grass);
+  line-height: 0;
+}
+
+.scene__art {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Real-HTML location label, anchored under the forecourt. */
+.place-label {
+  position: absolute;
+  left: 50%;
+  bottom: 3.5%;
+  transform: translateX(34%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--ui);
+  color: var(--ui-ink);
+  border: var(--border-w) solid var(--outline);
+  border-radius: var(--radius);
+  box-shadow: 3px 3px 0 var(--shadow-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.place-label__hint {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.place-label:hover {
+  transform: translateX(34%) translateY(-1px);
+}
+
+.nameplate {
+  position: absolute;
+  left: 41.5%;
+  top: 77%;
+  transform: translateX(-100%);
+  padding: 2px var(--sp-2);
+  background: var(--ui);
+  color: var(--ui-ink);
+  border: 2px solid var(--outline);
+  border-radius: 4px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .place-label {
+    left: 3%;
+    bottom: 4%;
+    transform: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    font-size: 0.9rem;
+    padding: var(--sp-1) var(--sp-2);
+  }
+  .place-label:hover {
+    transform: none;
+  }
+  .nameplate {
+    left: 53%;
+    top: 85.5%;
+    transform: none;
+    padding: 0 var(--sp-1);
+    font-size: 0.7rem;
+  }
+}

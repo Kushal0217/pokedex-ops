@@ -1,0 +1,218 @@
+/*
+ * Design tokens. One set of artwork, three lighting treatments.
+ * Scenery, sprite and UI colours are all tokens so day / evening / night
+ * re-light the same shapes instead of swapping images or applying a filter.
+ */
+:root {
+  /* Type */
+  --font-display: 'Pixelify Sans', 'Trebuchet MS', sans-serif;
+  --font-body: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Spacing (4px base) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* Panel language: thick ink outline, hard offset shadow, small radius */
+  --border-w: 3px;
+  --radius: 6px;
+  --hard-shadow: 5px 5px 0 var(--shadow-ink);
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 320ms;
+
+  /* Indoor paper surface: stays readable in every mode */
+  --paper: #fbf2dc;
+  --paper-2: #f1e3c2;
+  --paper-ink: #2e211c;
+  --paper-ink-soft: #5e4a3f;
+  --paper-rule: #c9b48c;
+  --accent: #c6452f;
+  --accent-ink: #fff6e6;
+  --indigo: #2c467a;
+}
+
+/* ---------- Day: bright scenery, clear colours ---------- */
+:root,
+:root[data-time='day'] {
+  --page: #efe3c4;
+  --page-ink: #2e211c;
+  --page-ink-soft: #5a473c;
+  --ui: #fbf2dc;
+  --ui-ink: #2e211c;
+  --ui-selected: #2e211c;
+  --ui-selected-ink: #fbf2dc;
+  --outline: #33241f;
+  --shadow-ink: #33241f;
+  --focus: #1f4fd1;
+
+  --grass: #93c36c;
+  --grass-hi: #abd482;
+  --grass-lo: #7aae58;
+  --path: #ead7a6;
+  --path-lo: #d3bb83;
+  --tree: #4f9150;
+  --tree-hi: #6aa95f;
+  --tree-lo: #3c7743;
+  --trunk: #76503a;
+  --wall: #f6e8c9;
+  --wall-lo: #dfcaa2;
+  --stone: #b9b1a2;
+  --wood: #94603f;
+  --wood-lo: #71452d;
+  --roof: #c9523c;
+  --roof-hi: #df6f52;
+  --roof-lo: #a33d2f;
+  --noren: #2c467a;
+  --noren-lo: #223762;
+  --noren-mark: #f6e8c9;
+  --lantern: #e24a38;
+  --lantern-lo: #b83628;
+  --lantern-band: #33241f;
+  --window: #a8d6e6;
+  --window-glint: #dff2f7;
+  --interior: #4c3229;
+  --interior-detail: #2f1f1a;
+  --light: #ffd978;
+  --glow: 0;
+  --cast-shadow: #33241f;
+  --cast-shadow-o: 0.22;
+
+  --spr-outline: #1c1517;
+  --spr-hoodie: #474a54;
+  --spr-hoodie-lo: #33353d;
+  --spr-jacket: #212025;
+  --spr-jacket-hi: #3d3c45;
+  --spr-tee: #131215;
+  --spr-skin: #9a6442;
+  --spr-skin-lo: #7d4e33;
+  --spr-hair: #18161a;
+  --spr-jeans: #a3c6e6;
+  --spr-jeans-lo: #81a8cf;
+  --spr-shoe: #f6f3ec;
+  --spr-shoe-lo: #cfcac0;
+}
+
+/* ---------- Evening: warm light, sunset accents, windows coming on ---------- */
+:root[data-time='evening'] {
+  --page: #f0bf8f;
+  --page-ink: #2e1c1a;
+  --page-ink-soft: #5b382f;
+  --ui: #fdebcf;
+  --ui-ink: #2e1c1a;
+  --ui-selected: #2e1c1a;
+  --ui-selected-ink: #fdebcf;
+  --outline: #3a2024;
+  --shadow-ink: #3a2024;
+  --focus: #1f3fb0;
+
+  --grass: #b3ad5c;
+  --grass-hi: #d0c06a;
+  --grass-lo: #94944f;
+  --path: #f2c489;
+  --path-lo: #d79f6a;
+  --tree: #6f8a45;
+  --tree-hi: #a3a24f;
+  --tree-lo: #51703f;
+  --trunk: #6e4436;
+  --wall: #fbd3a2;
+  --wall-lo: #e0a97e;
+  --stone: #c09a88;
+  --wood: #8d5038;
+  --wood-lo: #683a2c;
+  --roof: #c4472f;
+  --roof-hi: #ee7a48;
+  --roof-lo: #96322b;
+  --noren: #34407a;
+  --noren-lo: #283163;
+  --noren-mark: #fde0b4;
+  --lantern: #f4553a;
+  --lantern-lo: #c53a2b;
+  --lantern-band: #3a2024;
+  --window: #ffd27a;
+  --window-glint: #ffe9b5;
+  --interior: #f4b65a;
+  --interior-detail: #8d5038;
+  --light: #ffd27a;
+  --glow: 0.55;
+  --cast-shadow: #5a2a3a;
+  --cast-shadow-o: 0.3;
+
+  --spr-outline: #1e1317;
+  --spr-hoodie: #4d4950;
+  --spr-hoodie-lo: #37333b;
+  --spr-jacket: #262126;
+  --spr-jacket-hi: #4a3d42;
+  --spr-tee: #151114;
+  --spr-skin: #a5663f;
+  --spr-skin-lo: #824c31;
+  --spr-hair: #1a1518;
+  --spr-jeans: #b3c3da;
+  --spr-jeans-lo: #8e9fc0;
+  --spr-shoe: #fbeedb;
+  --spr-shoe-lo: #d9bfa4;
+}
+
+/* ---------- Night: dark scenery, lit windows and signs ---------- */
+:root[data-time='night'] {
+  --page: #17172e;
+  --page-ink: #f3ead6;
+  --page-ink-soft: #c2bdd0;
+  --ui: #2a2a4c;
+  --ui-ink: #f3ead6;
+  --ui-selected: #ffd978;
+  --ui-selected-ink: #1c1730;
+  --outline: #0e0d1f;
+  --shadow-ink: #0a0916;
+  --focus: #ffd978;
+
+  --grass: #2d5158;
+  --grass-hi: #3b656a;
+  --grass-lo: #24434c;
+  --path: #5c6585;
+  --path-lo: #4a5272;
+  --tree: #1f4549;
+  --tree-hi: #2c5a5b;
+  --tree-lo: #17363d;
+  --trunk: #3a2c3d;
+  --wall: #77759c;
+  --wall-lo: #5c5a84;
+  --stone: #4f4e6e;
+  --wood: #4f3850;
+  --wood-lo: #3a2940;
+  --roof: #74375a;
+  --roof-hi: #934a69;
+  --roof-lo: #552849;
+  --noren: #263a78;
+  --noren-lo: #1c2b5e;
+  --noren-mark: #e9dcc0;
+  --lantern: #ff6a45;
+  --lantern-lo: #d9452f;
+  --lantern-band: #3a1a22;
+  --window: #ffd978;
+  --window-glint: #fff0bd;
+  --interior: #ffcd66;
+  --interior-detail: #a35a34;
+  --light: #ffd978;
+  --glow: 1;
+  --cast-shadow: #0a0916;
+  --cast-shadow-o: 0.4;
+
+  --spr-outline: #0b0a14;
+  --spr-hoodie: #44475a;
+  --spr-hoodie-lo: #303246;
+  --spr-jacket: #1d1c29;
+  --spr-jacket-hi: #3d3b52;
+  --spr-tee: #111019;
+  --spr-skin: #8a5a44;
+  --spr-skin-lo: #6c4338;
+  --spr-hair: #14131c;
+  --spr-jeans: #8eaed6;
+  --spr-jeans-lo: #6d8cba;
+  --spr-shoe: #e6e6f0;
+  --spr-shoe-lo: #b3b3cc;
+}

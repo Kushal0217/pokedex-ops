@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Private inputs (avatar reference photo, raw flight CSV/email sources) never enter git or the build.
+private/
+review/
+*.local
