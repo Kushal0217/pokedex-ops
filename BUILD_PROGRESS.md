@@ -31,6 +31,9 @@ Kushal before anything can be pushed; all commits are local.
 - Reduced motion: no walk animation frames, tap-to-walk places the avatar instantly, dialogs open without
   transitions. All content stays reachable.
 
+**Revision (2026-11-15):** at Kushal's request the hood is down: the head and hair are visible in all
+walk directions and the hood rests against the upper back. Build and all checks re-run and passed.
+
 **Checks run (cloud session, 2026-11-15):**
 
 | Check | Result |
