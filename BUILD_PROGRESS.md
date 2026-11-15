@@ -43,7 +43,7 @@ grain, plaster flecks and stone joints, and the grass gained flowers. Build, `ch
 `review-shots` were re-run and passed. "Lighter" was read as lighter colours; confirm with Kushal.
 
 **Second revision (2026-11-15):** beard removed from the avatar; trees and bushes redrawn with lobed
-canopies, lit and shaded clumps, pixel leaf sprigs, fruit, bark, root flare and blossoms. Build,
+canopies, lit and shaded clumps, pixel leaf sprigs, fruit, bark and root flare. Bush blossoms (red with a white outline) were removed at Kushal's request. Build,
 `check:build` and `review-shots` re-run and passed.
 
 **Assumptions recorded:**

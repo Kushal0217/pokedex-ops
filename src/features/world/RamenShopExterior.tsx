@@ -114,14 +114,6 @@ function Bush({ x, y }: { x: number; y: number }) {
             <rect x={lx + 2} y={ly + 2} width={3} height={2} />
           </g>
         ))}
-        {/* blossoms */}
-        {([[-9, 1], [6, -9], [15, 3], [-1, -3]] as const).map(([bx, by]) => (
-          <g key={`${bx}-${by}`}>
-            <rect x={bx - 1} y={by} width={5} height={3} fill="var(--noren-mark)" />
-            <rect x={bx} y={by - 1} width={3} height={5} fill="var(--noren-mark)" />
-            <rect x={bx} y={by} width={3} height={3} fill="var(--lantern)" />
-          </g>
-        ))}
       </g>
     </g>
   );
