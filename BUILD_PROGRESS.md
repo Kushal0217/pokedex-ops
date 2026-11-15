@@ -45,7 +45,7 @@ grain, plaster flecks and stone joints, and the grass gained flowers. Build, `ch
 **Assumptions recorded:**
 - Role line "Software Engineer" is taken from the resume.
 - The menu lists only Kasama (Chicago). No rating, note, dish or link is shown because none was supplied; the Beli link is omitted until its URL exists.
-- The face shows only what the reference shows clearly: dark hair, brows, eyes and short facial hair.
+- The face shows only what the reference shows clearly: dark hair, brows and eyes. The beard was removed at Kushal's request.
 - Fonts (Pixelify Sans, Nunito; both SIL OFL) are bundled locally, so there are no runtime calls to a font service.
 - GSAP, Radix and Phaser are not installed yet; they join in the slices that first need them (2 and 7).
 - `private/` (avatar reference photo) is git-ignored and never built. `source-assets/` holds the resume and the flight CSV template until the slices that use them.

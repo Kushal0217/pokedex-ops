@@ -4,8 +4,8 @@ import type { SpriteDefinition } from './PixelSprite';
  * Kushal's map sprite (front-facing idle), 24 x 42 sprite pixels.
  * Follows the appearance reference: dark hoodie with the hood up under a black
  * quilted jacket, hands in pockets, light blue jeans, white sneakers. Facial
- * detail stays at what the reference shows clearly: dark hair, brows, eyes and
- * short facial hair.
+ * detail stays at what the reference shows clearly: dark hair, brows and eyes.
+ * No beard, at Kushal's request.
  */
 export const kushalSprite: SpriteDefinition = {
   name: 'Kushal',
@@ -42,9 +42,9 @@ export const kushalSprite: SpriteDefinition = {
     '....OiHhSKKSSKKShHhO....',
     '....OiHhSSESSESShHhO....',
     '....OiHhSSSSsSSShHhO....',
-    '....OiHhSsKKKKsShHhO....',
-    '....OiHhSsKssKsShHhO....',
-    '.....OHhhsKKKKshhHO.....',
+    '....OiHhSSSSSSSShHhO....',
+    '....OiHhSSSssSSShHhO....',
+    '.....OHhhsSSSSshhHO.....',
     '......OHhhsssshhHO......',
     '....OOJJhHDTTDHhJJOO....',
     '...OjJJkhHDTTDHhkJJJO...',
