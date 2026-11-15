@@ -6,6 +6,12 @@
   overflow: hidden;
   background: var(--grass);
   line-height: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scene:focus-visible {
+  outline-offset: 4px;
 }
 
 .scene__art {
@@ -14,18 +20,17 @@
   height: auto;
 }
 
-/* Real-HTML location label, anchored under the forecourt. */
+/* Real-HTML place label: a button anchored just below each doorway. */
 .place-label {
   position: absolute;
-  left: 50%;
-  bottom: 3.5%;
-  transform: translateX(34%);
   z-index: 1;
+  transform: translateX(-50%);
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--sp-2);
   min-height: 44px;
-  padding: var(--sp-2) var(--sp-3);
+  min-width: 44px;
+  padding: var(--sp-1) var(--sp-3);
   background: var(--ui);
   color: var(--ui-ink);
   border: var(--border-w) solid var(--outline);
@@ -34,7 +39,7 @@
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 1rem;
-  line-height: 1.1;
+  line-height: 1.15;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -42,12 +47,14 @@
 .place-label__hint {
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   opacity: 0.85;
 }
 
-.place-label:hover {
-  transform: translateX(34%) translateY(-1px);
+.place-label:hover,
+.place-label:focus-visible {
+  background: var(--ui-selected);
+  color: var(--ui-selected-ink);
 }
 
 .avatar {
@@ -76,36 +83,17 @@
   border-radius: 4px;
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   line-height: 1.3;
   white-space: nowrap;
 }
 
-.scene {
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
+.scene--path .place-label {
+  font-size: 0.92rem;
+  padding: var(--sp-1) var(--sp-2);
 }
 
-.scene:focus-visible {
-  outline-offset: 4px;
-}
-
-@media (max-width: 520px) {
-  .place-label {
-    left: 3%;
-    bottom: 4%;
-    transform: none;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0;
-    font-size: 0.9rem;
-    padding: var(--sp-1) var(--sp-2);
-  }
-  .place-label:hover {
-    transform: none;
-  }
-  .avatar__name {
-    padding: 0 var(--sp-1);
-    font-size: 0.68rem;
-  }
+.scene--path .avatar__name {
+  padding: 0 var(--sp-1);
+  font-size: 0.68rem;
 }

@@ -1,0 +1,58 @@
+/* Simple readable panel used by place scenes that are mostly text. */
+.place-panel {
+  padding: var(--sp-5);
+  display: grid;
+  gap: var(--sp-3);
+  font-size: 1.05rem;
+}
+
+.place-panel__kicker {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.3rem;
+  line-height: 1.2;
+  color: var(--indigo);
+}
+
+.place-panel__later {
+  padding: var(--sp-3) var(--sp-4);
+  border: 2px dashed var(--paper-rule);
+  border-radius: var(--radius);
+  background: var(--paper-2);
+}
+
+.place-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.place-panel__button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 var(--sp-4);
+  background: var(--paper-ink);
+  color: #fffdf7;
+  border: var(--border-w) solid var(--outline);
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.place-panel__button--quiet {
+  background: var(--paper);
+  color: var(--paper-ink);
+}
+
+.place-panel__button:hover {
+  filter: brightness(1.15);
+}
+
+.place-panel__button--quiet:hover {
+  filter: none;
+  background: var(--paper-2);
+}

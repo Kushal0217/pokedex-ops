@@ -1,22 +1,38 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import './app.css';
 import { FactsDialog } from './features/facts/FactsDialog';
 import { facts } from './features/facts/facts';
+import { AirportPreview } from './features/flights/AirportPreview';
 import { BowlMark, FoodMenu } from './features/food/FoodMenu';
 import { RamenInterior } from './features/food/RamenInterior';
-import { LightingPreviewSelector } from './features/preview/LightingPreviewSelector';
+import { ProfilePanel } from './features/profile/ProfilePanel';
+import { StadiumPreview } from './features/stadium/StadiumPreview';
 import { TownScene, type TownSceneHandle } from './features/world/TownScene';
-import { ramenShop } from './features/world/places';
+import { placeById, type PlaceId } from './features/world/places';
+import { LightingSelector } from './shared/ui/LightingSelector';
 import { SceneDialog } from './shared/ui/SceneDialog';
+import { useMediaQuery } from './shared/useMediaQuery';
 import { useReducedMotion } from './shared/useReducedMotion';
-import { applyTimeMode, type TimeMode } from './theme/timeOfDay';
+import { useLighting } from './theme/timeOfDay';
 
 const FACTS_HASH = '#facts';
 
+/** One-line description of each place's scene, read out with its title. */
+const SCENE_DESCRIPTION: Record<PlaceId, string> = {
+  profile: 'A short introduction to Kushal and a link to the resume.',
+  ramen: "Inside the ramen shop. Open the menu board to read Kushal's food favorites.",
+  stadium: "Kushal's soccer club. The penalty game is not built yet.",
+  airport: 'The flight log is not built yet.',
+};
+
 export function App() {
   const reducedMotion = useReducedMotion();
-  const [mode, setMode] = useState<TimeMode>('day');
-  const [interiorOpen, setInteriorOpen] = useState(false);
+  // Phones get the vertical village path; wider screens get the broad town. Same places either way.
+  const layoutId = useMediaQuery('(max-width: 760px)') ? 'path' : 'town';
+  const lighting = useLighting();
+  const [openPlace, setOpenPlace] = useState<PlaceId | null>(null);
+  /** The place whose scene is on screen; kept while it closes so focus can return to it. */
+  const lastPlace = useRef<PlaceId>('ramen');
   const [menuOpen, setMenuOpen] = useState(false);
   // A direct link to #facts opens the plain view straight away.
   const [factsOpen, setFactsOpen] = useState(() => window.location.hash === FACTS_HASH);
@@ -27,21 +43,21 @@ export function App() {
   const factsLauncher = useRef<HTMLElement | null>(null);
   const headerFactsButton = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    applyTimeMode(mode);
-  }, [mode]);
-
   const openFacts = useCallback(() => {
     factsLauncher.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setFactsOpen(true);
   }, []);
 
-  const onInteriorChange = (open: boolean) => {
-    setInteriorOpen(open);
-    if (!open) {
-      setMenuOpen(false);
-      townRef.current?.standOutsideShop();
-    }
+  const onOpenPlace = useCallback((id: PlaceId) => {
+    lastPlace.current = id;
+    setOpenPlace(id);
+  }, []);
+
+  const onPlaceChange = (open: boolean) => {
+    if (open) return;
+    setOpenPlace(null);
+    setMenuOpen(false);
+    townRef.current?.standOutside(lastPlace.current);
   };
 
   const factsAction = (
@@ -49,6 +65,7 @@ export function App() {
       Just the facts
     </button>
   );
+  const shown = openPlace ?? lastPlace.current;
 
   return (
     <>
@@ -71,22 +88,26 @@ export function App() {
             <strong>Explore.</strong> Pick a place on the map. Walking is optional: arrow keys or W A S D, or tap the
             ground.
           </p>
-          <LightingPreviewSelector value={mode} onChange={setMode} />
+          <LightingSelector value={lighting.preference} mode={lighting.mode} onChange={lighting.setPreference} />
         </div>
 
-        <TownScene ref={townRef} placeOpen={interiorOpen} reducedMotion={reducedMotion} onOpenPlace={() => setInteriorOpen(true)} />
+        <TownScene ref={townRef} layoutId={layoutId} placeOpen={openPlace !== null} reducedMotion={reducedMotion} onOpenPlace={onOpenPlace} />
       </main>
 
       <SceneDialog
-        open={interiorOpen}
-        onOpenChange={onInteriorChange}
-        title={ramenShop.label}
-        description="Inside the ramen shop. Open the menu board to read Kushal's food favorites."
+        open={openPlace !== null}
+        onOpenChange={onPlaceChange}
+        title={placeById(shown).label}
+        description={SCENE_DESCRIPTION[shown]}
         closeLabel="Back to town"
+        size={shown === 'ramen' ? 'wide' : 'narrow'}
         actions={factsAction}
-        onReturnFocus={() => townRef.current?.focusPlace()}
+        onReturnFocus={() => townRef.current?.focusPlace(lastPlace.current)}
       >
-        <RamenInterior ref={menuButtonRef} onOpenMenu={() => setMenuOpen(true)} />
+        {shown === 'ramen' && <RamenInterior ref={menuButtonRef} onOpenMenu={() => setMenuOpen(true)} />}
+        {shown === 'profile' && <ProfilePanel onOpenFacts={openFacts} />}
+        {shown === 'stadium' && <StadiumPreview />}
+        {shown === 'airport' && <AirportPreview />}
       </SceneDialog>
 
       <SceneDialog

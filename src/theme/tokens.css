@@ -79,6 +79,18 @@
   --interior-detail: #2f1f1a;
   --light: #ffd978;
   --glow: 0;
+  --roof2: #4f8190;
+  --roof2-hi: #6fa0ad;
+  --roof2-lo: #3b6674;
+  --pitch: #63b25a;
+  --pitch-lo: #51a04b;
+  --seat-a: #2c467a;
+  --seat-b: #a5304a;
+  --metal: #c8ccd4;
+  --metal-lo: #9aa0ac;
+  --beacon: #e24a38;
+  --screen: #26323f;
+  --screen-ink: #7fe0a0;
   --cast-shadow: #33241f;
   --cast-shadow-o: 0.22;
 
@@ -146,6 +158,18 @@
   --interior-detail: #8d5038;
   --light: #ffd27a;
   --glow: 0.55;
+  --roof2: #5d7786;
+  --roof2-hi: #94a08f;
+  --roof2-lo: #455c6e;
+  --pitch: #8fa652;
+  --pitch-lo: #7a9248;
+  --seat-a: #34407a;
+  --seat-b: #a8323f;
+  --metal: #e0c2a6;
+  --metal-lo: #b39484;
+  --beacon: #f4553a;
+  --screen: #2a2c40;
+  --screen-ink: #9df0b0;
   --cast-shadow: #5a2a3a;
   --cast-shadow-o: 0.3;
 
@@ -213,6 +237,18 @@
   --interior-detail: #a35a34;
   --light: #ffd978;
   --glow: 1;
+  --roof2: #2f4c70;
+  --roof2-hi: #3e6088;
+  --roof2-lo: #24395a;
+  --pitch: #2f7a56;
+  --pitch-lo: #276a4b;
+  --seat-a: #24346a;
+  --seat-b: #7a2848;
+  --metal: #7c7f9e;
+  --metal-lo: #5c5e80;
+  --beacon: #ff6a45;
+  --screen: #1a2030;
+  --screen-ink: #9dffb8;
   --cast-shadow: #0a0916;
   --cast-shadow-o: 0.4;
 

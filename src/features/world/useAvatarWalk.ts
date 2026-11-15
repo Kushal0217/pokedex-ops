@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { VIEW_H, VIEW_W } from './RamenShopExterior';
-import { DOOR, START, step, type Point } from './walkable';
+import type { PlaceId } from './places';
+import { step, type Point, type TownMap } from './townMap';
 
 export type Facing = 'down' | 'up' | 'left' | 'right';
 export interface Pose {
@@ -12,7 +12,7 @@ export interface Pose {
 /** Avatar box in scene units: sprite is 24 x 42 sprite pixels plus a shadow row. */
 export const AVATAR_W = 42;
 export const AVATAR_H = 77;
-const SPEED = 95; // scene units per second
+const SPEED = 120; // scene units per second
 const STEP_MS = 150;
 
 const KEY_DIRS: Record<string, readonly [number, number]> = {
@@ -21,37 +21,40 @@ const KEY_DIRS: Record<string, readonly [number, number]> = {
 };
 
 interface Options {
+  map: TownMap;
   /** The scene element: arrow keys only steer while focus is inside it, so they still scroll the page elsewhere. */
   sceneRef: RefObject<HTMLElement | null>;
   avatarRef: RefObject<HTMLElement | null>;
   /** False while a dialog is open: keys are ignored, a decorative walk may finish. */
   keysEnabled: boolean;
   reducedMotion: boolean;
-  /** Called once when the avatar is walked up into the doorway. */
-  onEnterDoor: () => void;
+  /** Called once when the avatar is steered up into a doorway. */
+  onEnterDoor: (place: PlaceId) => void;
 }
 
 /**
- * Optional avatar movement: WASD / arrow keys, or walk to a tapped point.
- * Position lives in a ref and is written straight to the element's style, so
- * React re-renders only when the pose (facing or step frame) changes.
+ * Optional avatar movement: WASD / arrow keys, or walk to a tapped point along
+ * a route around obstacles. Position lives in a ref and is written straight to
+ * the element's style, so React re-renders only when the pose changes.
  */
-export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion, onEnterDoor }: Options) {
-  const pos = useRef<Point>({ ...START });
+export function useAvatarWalk({ map, sceneRef, avatarRef, keysEnabled, reducedMotion, onEnterDoor }: Options) {
+  const pos = useRef<Point>({ ...map.start });
   const [pose, setPose] = useState<Pose>({ facing: 'down', frame: 0 });
   const poseRef = useRef(pose);
   const keys = useRef(new Set<string>());
-  const target = useRef<(Point & { enter: boolean }) | null>(null);
+  /** Remaining waypoints of a tap/selection walk. */
+  const path = useRef<Point[]>([]);
   const raf = useRef(0);
   const last = useRef(0);
-  const live = useRef({ keysEnabled, reducedMotion, onEnterDoor });
-  live.current = { keysEnabled, reducedMotion, onEnterDoor };
+  const live = useRef({ map, keysEnabled, reducedMotion, onEnterDoor });
+  live.current = { map, keysEnabled, reducedMotion, onEnterDoor };
 
   const place = useCallback(() => {
     const el = avatarRef.current;
     if (!el) return;
-    el.style.left = `${((pos.current.x - AVATAR_W / 2) / VIEW_W) * 100}%`;
-    el.style.top = `${((pos.current.y - AVATAR_H + 4) / VIEW_H) * 100}%`;
+    const { width, height } = live.current.map;
+    el.style.left = `${((pos.current.x - AVATAR_W / 2) / width) * 100}%`;
+    el.style.top = `${((pos.current.y - AVATAR_H + 4) / height) * 100}%`;
   }, [avatarRef]);
 
   const applyPose = useCallback((next: Pose) => {
@@ -70,10 +73,12 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
     (now: number) => {
       const dt = Math.min(0.05, (now - last.current) / 1000);
       last.current = now;
+      const { map: town } = live.current;
+      const steering = live.current.keysEnabled && keys.current.size > 0;
       let dx = 0;
       let dy = 0;
-      if (live.current.keysEnabled && keys.current.size > 0) {
-        target.current = null;
+      if (steering) {
+        path.current = [];
         for (const key of keys.current) {
           const dir = KEY_DIRS[key];
           if (dir) {
@@ -81,11 +86,13 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
             dy += dir[1];
           }
         }
-      } else if (target.current) {
-        dx = target.current.x - pos.current.x;
-        dy = target.current.y - pos.current.y;
-        if (Math.hypot(dx, dy) < 2) {
-          target.current = null;
+      } else {
+        while (path.current.length > 0) {
+          const next = path.current[0]!;
+          dx = next.x - pos.current.x;
+          dy = next.y - pos.current.y;
+          if (Math.hypot(dx, dy) >= 2) break;
+          path.current.shift();
           dx = 0;
           dy = 0;
         }
@@ -95,11 +102,9 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
         stop();
         return;
       }
-      const distance = Math.min(SPEED * dt, target.current ? length : Infinity);
+      const distance = Math.min(SPEED * dt, steering ? Infinity : length);
       const before = pos.current;
-      let after = step(before, (dx / length) * distance, (dy / length) * distance);
-      // Walking to a tapped point: if something is in the way sideways, detour down into the open yard.
-      if (target.current && after.x === before.x && Math.abs(dx) > 2) after = step(before, 0, distance);
+      const after = step(town, before, (dx / length) * distance, (dy / length) * distance);
       const blocked = after.x === before.x && after.y === before.y;
       pos.current = after;
       place();
@@ -108,15 +113,17 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
       const frame = live.current.reducedMotion ? 0 : Math.floor(now / STEP_MS) % 2 === 0 ? 1 : 2;
       applyPose({ facing, frame });
 
-      const steeredIn = !target.current || target.current.enter;
-      if (steeredIn && after.y <= DOOR.yEnter && before.y > DOOR.yEnter) {
-        target.current = null;
-        keys.current.clear();
-        stop();
-        live.current.onEnterDoor();
-        return;
+      if (steering) {
+        const door = town.doors.find((d) => after.x >= d.x1 && after.x <= d.x2 && after.y <= d.yEnter && before.y > d.yEnter);
+        if (door) {
+          keys.current.clear();
+          stop();
+          live.current.onEnterDoor(door.id);
+          return;
+        }
+      } else if (blocked) {
+        path.current = [];
       }
-      if (blocked && target.current) target.current = null;
       raf.current = requestAnimationFrame(tick);
     },
     [applyPose, place, stop],
@@ -128,27 +135,10 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
     raf.current = requestAnimationFrame(tick);
   }, [tick]);
 
-  /** Walk to a point. With reduced motion the avatar is simply placed there. */
-  const walkTo = useCallback(
-    (point: Point, options: { enter?: boolean } = {}) => {
-      if (live.current.reducedMotion) {
-        target.current = null;
-        pos.current = { ...point };
-        place();
-        applyPose({ facing: 'down', frame: 0 });
-        if (options.enter) live.current.onEnterDoor();
-        return;
-      }
-      target.current = { ...point, enter: options.enter ?? false };
-      start();
-    },
-    [applyPose, place, start],
-  );
-
   /** Put the avatar somewhere immediately, facing the visitor. */
   const placeAt = useCallback(
     (point: Point) => {
-      target.current = null;
+      path.current = [];
       keys.current.clear();
       pos.current = { ...point };
       place();
@@ -158,9 +148,25 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
     [applyPose, place, stop],
   );
 
+  /** Walk to a point along a route. With reduced motion the avatar is simply placed there. */
+  const walkTo = useCallback(
+    (point: Point) => {
+      const route = live.current.map.route(pos.current, point);
+      if (route.length === 0) return;
+      if (live.current.reducedMotion) {
+        placeAt(route[route.length - 1]!);
+        return;
+      }
+      path.current = route;
+      start();
+    },
+    [placeAt, start],
+  );
+
+  // A new layout (desktop town <-> phone path) restarts the avatar at that layout's start.
   useEffect(() => {
-    place();
-  }, [place]);
+    placeAt(map.start);
+  }, [map, placeAt]);
 
   useEffect(() => {
     const isTyping = (el: EventTarget | null) =>
@@ -171,12 +177,11 @@ export function useAvatarWalk({ sceneRef, avatarRef, keysEnabled, reducedMotion,
       if (!live.current.keysEnabled || e.metaKey || e.ctrlKey || e.altKey) return;
       const key = keyOf(e);
       if (!KEY_DIRS[key]) return;
-      const isArrow = key.startsWith('Arrow');
-      if (isArrow) {
+      if (key.startsWith('Arrow')) {
         // Arrow keys steer only while focus is in the scene; elsewhere they scroll or change radios as usual.
         if (!sceneRef.current?.contains(document.activeElement)) return;
         e.preventDefault();
-      } else if (isTyping(e.target)) {
+      } else if (isTyping(e.target) && (e.target as HTMLInputElement).type !== 'radio') {
         return;
       }
       keys.current.add(key);
