@@ -42,6 +42,10 @@ laces and soles. Skin, hoodie and jacket tones were lightened in all three modes
 grain, plaster flecks and stone joints, and the grass gained flowers. Build, `check:build` and
 `review-shots` were re-run and passed. "Lighter" was read as lighter colours; confirm with Kushal.
 
+**Second revision (2026-11-15):** beard removed from the avatar; trees and bushes redrawn with lobed
+canopies, lit and shaded clumps, pixel leaf sprigs, fruit, bark, root flare and blossoms. Build,
+`check:build` and `review-shots` re-run and passed.
+
 **Assumptions recorded:**
 - Role line "Software Engineer" is taken from the resume.
 - The menu lists only Kasama (Chicago). No rating, note, dish or link is shown because none was supplied; the Beli link is omitted until its URL exists.
