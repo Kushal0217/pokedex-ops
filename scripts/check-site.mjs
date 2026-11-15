@@ -39,6 +39,8 @@ async function run(name, contextOptions, { shots = false } = {}) {
   const page = await context.newPage();
   const errors = [];
   const foreign = [];
+  const flightChunkRequests = [];
+  page.on('request', (r) => { if (/FlightLog|flights\.data|worldMap/.test(r.url())) flightChunkRequests.push(r.url()); });
   page.on('request', (r) => { if (!r.url().startsWith(new URL(url).origin) && !r.url().startsWith('data:')) foreign.push(r.url()); });
   await page.addInitScript(() => {
     window.__geo = 0;
@@ -68,6 +70,7 @@ async function run(name, contextOptions, { shots = false } = {}) {
     await shot(`map-${mode.toLowerCase()}`);
   }
 
+  check(flightChunkRequests.length === 0, `${name}: flight log code or data was fetched before the airport was opened`);
   // Every place: reachable by keyboard and by touch/click, opens, closes, and hands focus back.
   const labels = await page.locator('.place-label').evaluateAll((els) => els.map((el) => el.firstChild.textContent));
   check(JSON.stringify(labels) === JSON.stringify(PLACES), `${name}: places are ${JSON.stringify(labels)}`);
@@ -78,7 +81,13 @@ async function run(name, contextOptions, { shots = false } = {}) {
     await page.keyboard.press(label === 'Stadium' ? 'Space' : 'Enter');
     check(await dialog.isVisible(), `${name}: ${label} did not open by keyboard`);
     check((await overflow(page)) <= 0, `${name}: horizontal overflow with ${label} open`);
-    if (label === 'Stadium' || label === 'Airport') check(await dialog.getByText('Not built yet:').isVisible(), `${name}: ${label} does not say it is unfinished`);
+    if (label === 'Stadium') check(await dialog.getByText('Not built yet:').isVisible(), `${name}: ${label} does not say it is unfinished`);
+    if (label === 'Airport') {
+      // No flight data has been supplied: a deliberate empty state, with no totals, routes or sample flights.
+      await dialog.getByText('No flights on the board yet').waitFor({ timeout: 5000 }).catch(() => {});
+      check(await dialog.getByText('No flights on the board yet').isVisible(), `${name}: airport empty state missing`);
+      check((await dialog.getByRole('tab').count()) === 0 && (await dialog.locator('.flight-totals, .board, .route-map').count()) === 0, `${name}: airport shows totals, a map or rows without any data`);
+    }
     if (label === 'Profile') check((await dialog.getByRole('link', { name: /Download resume/ }).getAttribute('href')) === 'resume.pdf', `${name}: profile has no resume link`);
     if (shots) { await page.waitForTimeout(300); await page.screenshot({ path: `${outDir}/${name}-place-${label.toLowerCase().replace(' ', '-')}.png` }); }
     await page.keyboard.press('Escape');
@@ -269,6 +278,7 @@ async function run(name, contextOptions, { shots = false } = {}) {
     await page.keyboard.press('Escape');
     await page.keyboard.down('w'); await page.waitForTimeout(100); await page.keyboard.up('w');
   }
+  check(flightChunkRequests.length > 0, `${name}: flight log chunk was never fetched when the airport opened`);
   check((await page.evaluate(() => window.__geo)) === 0, `${name}: the page asked about geolocation`);
   check(foreign.length === 0, `${name}: requests left the site: ${foreign.join(', ')}`);
   check(errors.length === 0, `${name}: console errors: ${errors.join(' | ')}`);
@@ -386,6 +396,59 @@ if (process.env.DEV_URL) {
     check((await overflow(page)) <= 0, 'fixture-food: horizontal overflow');
     await menu.locator('.menu__item').last().scrollIntoViewIfNeeded();
     check(await menu.locator('.menu__item').last().isVisible(), 'fixture-food: last entry not reachable');
+    await page.close();
+  }
+  // Airport with the synthetic dataset: map, list, filters and totals agree.
+  for (const [name, viewport] of [['fixture-flights-desktop', { width: 1280, height: 900 }], ['fixture-flights-phone', { width: 360, height: 640 }]]) {
+    const page = await browser.newPage({ viewport, deviceScaleFactor: scale });
+    await page.goto(process.env.DEV_URL + '?fixture=flights', { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /^Airport/ }).click();
+    const airport = page.getByRole('dialog', { name: 'Airport' });
+    await airport.getByRole('tab', { name: 'Route map' }).waitFor();
+    const stat = async (label) => (await airport.locator('.flight-totals div', { hasText: label }).locator('dd').textContent()).trim();
+    check((await stat('Flights taken')) === '10' && (await stat('Airports visited')) === '5' && (await stat('Countries flown to/from')) === '3', `${name}: totals are ${await stat('Flights taken')}/${await stat('Airports visited')}/${await stat('Countries flown to/from')}, expected 10/5/3`);
+    check(await airport.getByText(/1 airport has no country on file/).isVisible(), `${name}: missing-country note absent`);
+    // Routes: every route is a real button; counts add up to the total.
+    const routeCounts = await airport.locator('.route-button__count').evaluateAll((els) => els.map((el) => parseInt(el.textContent, 10)));
+    check(routeCounts.reduce((a, b) => a + b, 0) === 10 && routeCounts.length === 4, `${name}: route counts ${JSON.stringify(routeCounts)} do not add up to 10 over 4 routes`);
+    check(await airport.getByRole('button', { name: /DFW ↔ QQQ.*not on map/ }).isVisible(), `${name}: route with an unknown airport is not flagged`);
+    check((await airport.locator('.route-map text').allTextContents()).sort().join() === 'DFW,HYD,LHR,ORD', `${name}: map markers are ${await airport.locator('.route-map text').allTextContents()}`);
+    // Keyboard: select a route, read both directions.
+    const route = airport.getByRole('button', { name: /DFW ↔ ORD/ });
+    await route.focus();
+    await page.keyboard.press('Enter');
+    check((await route.getAttribute('aria-pressed')) === 'true', `${name}: route not selectable by keyboard`);
+    const details = airport.locator('.route-details');
+    check(await details.getByText('flown 5 times').isVisible(), `${name}: route count missing`);
+    check(await details.getByText('Dallas-Fort Worth (DFW) → Chicago (ORD): 2 flights').isVisible() && await details.getByText('Chicago (ORD) → Dallas-Fort Worth (DFW): 3 flights').isVisible(), `${name}: directions not shown separately`);
+    check((await details.locator('tbody tr').count()) === 5, `${name}: route detail rows != 5`);
+    check((await overflow(page)) <= 0, `${name}: horizontal overflow on the route map tab`);
+    await page.screenshot({ path: `${outDir}/${name}-map.png` });
+    // All flights: every record, newest first, without touching the map.
+    await airport.getByRole('tab', { name: 'Route map' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(100);
+    const rows = airport.locator('.board tbody tr');
+    check((await rows.count()) === 10, `${name}: All flights shows ${await rows.count()} rows, expected 10`);
+    check((await rows.first().textContent()).includes('10 Feb 2024') && (await rows.last().textContent()).includes('4 Mar 2021'), `${name}: list is not newest first`);
+    check((await airport.getByText(/booked|cancel|uncertain|ZZ 5\d\d|ZZ 6\d\d|ZZ 700/i).count()) === 0, `${name}: a non-flown or invalid record is displayed`);
+    check((await overflow(page)) <= 0, `${name}: horizontal overflow on All flights`);
+    await page.screenshot({ path: `${outDir}/${name}-list.png` });
+    const showing = () => airport.getByRole('status').textContent();
+    await airport.getByLabel('Year').selectOption('2023');
+    check((await rows.count()) === 5 && (await showing()) === 'Showing 5 of 10 flights', `${name}: year filter gave ${await rows.count()} rows (${await showing()})`);
+    await airport.getByLabel('Search city or airport code').fill('hyderabad');
+    check((await rows.count()) === 2, `${name}: year + city search gave ${await rows.count()} rows, expected 2`);
+    await airport.getByLabel('Year').selectOption('all');
+    await airport.getByLabel('Search city or airport code').fill('lhr');
+    check((await rows.count()) === 2, `${name}: code search gave ${await rows.count()} rows, expected 2`);
+    await airport.getByLabel('Search city or airport code').fill('zzzz');
+    check((await rows.count()) === 0 && await airport.getByText('No flights match that search.').isVisible(), `${name}: no-match state missing`);
+    // Space in the search box must type a space, not steer or close anything; totals do not change with filters.
+    await airport.getByLabel('Search city or airport code').fill('');
+    await airport.getByLabel('Search city or airport code').pressSequentially('hare int');
+    check((await rows.count()) === 5 && (await airport.getByLabel('Search city or airport code').inputValue()) === 'hare int', `${name}: typing "hare int" gave ${await rows.count()} rows, expected 5`);
+    check((await stat('Flights taken')) === '10', `${name}: totals changed with the filter`);
     await page.close();
   }
 } else {

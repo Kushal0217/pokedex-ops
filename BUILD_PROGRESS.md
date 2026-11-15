@@ -7,16 +7,76 @@
 | 3 | Complete | Pending |
 | 4 | Complete | Pending |
 | 5 | Complete | Pending |
-| 6 | Not started | Pending |
+| 6 | Complete (empty state; real CSV not supplied) | Pending |
 | 7 | Not started | Pending |
 | 8 | Not started | Pending |
 | 9 | Not started | Pending |
 
-**Next action:** start Slice 6 (airport and CSV pipeline). The real flight CSV has not been supplied, so the airport will ship with its deliberate empty state.
+**Next action:** start Slice 7 (penalty mechanics). When Muse's reviewed flight CSV arrives, save it as `private/flights.csv` and run `npm run import:flights`.
 
 **Where the code is saved:** Kushal's new GitHub repository could not be reached from the build session
 (not visible to it under the names tried). Until it is attached, every commit is also pushed as a backup to
 branch `claude/intelligent-tesla-tb3db1` of `Kushal0217/pokedex-ops`.
+
+## Slice 6 — Airport and CSV pipeline
+
+**Built:**
+- Importer: `npm run import:flights` (`scripts/import-flights.mjs`, logic in `scripts/lib/flights-import.mjs`,
+  CSV parser in `scripts/lib/csv.mjs`). Reads `private/flights.csv` (git-ignored, never built) and writes the
+  approved derived data to `src/features/flights/flights.data.json`. A written report also goes to
+  `private/flights-import-report.txt`.
+- Rules: only `flown` rows are published; `booked`, `canceled`/`cancelled` and `uncertain` are counted and
+  excluded; invalid rows (bad or future date, non-IATA code, unknown status, same origin and destination,
+  short row) are excluded and listed by line; codes and statuses are normalised; only the six known columns
+  are read, and extra columns are reported and never copied.
+- Duplicates: same date, route and flight number is one leg (later copies removed and reported). Same date
+  and route with a missing flight number is **kept** and flagged for review, never merged.
+- Safety: a malformed file (unclosed quote, missing column, empty) or one that would empty existing data
+  exits with an error and leaves the data file untouched. `--allow-empty` permits an intentional wipe.
+- Airport lookup: `data/airports.json`, 8,799 airports from OurAirports (public domain), used only by the
+  importer. An unknown code keeps its flight in the list but gets no coordinates and no country.
+- World map: Natural Earth 1:110m land (public domain) as one generated SVG path, flat equirectangular.
+- Airport scene: totals (Flights taken, Airports visited, Countries flown to/from), **Route map** (markers,
+  curved connections, a real button per route, details with each direction listed separately) and
+  **All flights** (board with date, airline, flight, from, to; city/code search; year filter; stacked rows on
+  phones). The whole flight log is a separate chunk fetched when the airport opens.
+- With no data supplied, the airport shows a deliberate empty state: no totals, map, rows or sample flights.
+
+**Checks run (cloud session, 2026-11-15):**
+
+| Check | Result |
+| --- | --- |
+| `npm test` | Passed: 10 tests on the parser, importer and command-line tool, using synthetic data only. |
+| `npm run build`, `npm run check:build` | Passed. The build check rejects any `SYNTHETIC` fixture text in `dist/`. |
+| `DEV_URL=http://localhost:5173/ node scripts/check-site.mjs` | Passed: 597 checks. |
+
+`npm test` covers: quoted fields, escaped quotes, embedded commas and newlines, CRLF, BOM, UTF-8; status
+exclusion; each kind of invalid row with its line number; both duplicate cases; unknown airports; extra
+columns never reaching the output; file-level failures; the header-only template; and that four kinds of bad
+replacement file leave an existing data file byte-for-byte unchanged.
+
+The site checks cover: the empty state on the real site; the flight-log chunk not being fetched until the
+airport opens; and, with the synthetic dataset on the dev server at 1280px and 360px, totals of 10 / 5 / 3,
+route counts summing to the total, the unknown-airport route flagged "not on map", map markers matching the
+known airports, keyboard route selection with both directions shown, all 10 rows newest first with no
+non-flown record, year filter, city search, code search, a no-match message, typing a space in the search
+box, totals unaffected by filters, and no horizontal overflow.
+
+**Defects found and fixed while reviewing screenshots:** land shapes crossing the antimeridian drew bands
+across the map; a marker label near the edge was clipped; the pixel font's "5" read as "S" in the totals.
+
+**Assumptions recorded:**
+- A `flown` row dated in the future is treated as invalid.
+- "Airports visited" counts every departure and arrival airport, connections included, as the PRD specifies.
+- The country statistic counts only airports with a country on file and says so when one is missing.
+- The map zooms to the airports in use rather than always showing the whole world.
+- No filter-change animation was added (the PRD marks it optional).
+
+**Limitations:**
+- No real flight data has been imported; everything beyond the empty state was verified with synthetic data.
+- Routes are drawn as simple curves on a flat map, not great-circle paths, and a route across the Pacific
+  would be drawn the long way round.
+- The importer flags possible duplicates but a person still has to resolve them in the CSV.
 
 ## Slice 5 — Food content and ramen scene
 

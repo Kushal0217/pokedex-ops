@@ -1,0 +1,104 @@
+{
+  "flights": [
+    {
+      "date": "2021-03-04",
+      "airline": "SYNTHETIC Air",
+      "flightNumber": "ZZ 101",
+      "origin": "DFW",
+      "destination": "ORD"
+    },
+    {
+      "date": "2021-03-09",
+      "airline": "SYNTHETIC Air",
+      "flightNumber": "ZZ 102",
+      "origin": "ORD",
+      "destination": "DFW"
+    },
+    {
+      "date": "2022-06-11",
+      "airline": "SYNTHETIC Air, Long-Haul Division",
+      "flightNumber": "ZZ 900",
+      "origin": "DFW",
+      "destination": "LHR"
+    },
+    {
+      "date": "2022-06-25",
+      "airline": "SYNTHETIC \"Quoted\" Air",
+      "flightNumber": "ZZ 901",
+      "origin": "LHR",
+      "destination": "DFW"
+    },
+    {
+      "date": "2023-01-15",
+      "airline": "SYNTHETIC Air",
+      "flightNumber": "ZZ 101",
+      "origin": "DFW",
+      "destination": "ORD"
+    },
+    {
+      "date": "2023-01-20",
+      "airline": "",
+      "flightNumber": "",
+      "origin": "ORD",
+      "destination": "DFW"
+    },
+    {
+      "date": "2023-01-20",
+      "airline": "SYNTHETIC Air",
+      "flightNumber": "",
+      "origin": "ORD",
+      "destination": "DFW"
+    },
+    {
+      "date": "2023-08-02",
+      "airline": "SYNTHETIC Air",
+      "flightNumber": "ZZ 300",
+      "origin": "DFW",
+      "destination": "HYD"
+    },
+    {
+      "date": "2023-08-30",
+      "airline": "SYNTHETIC Aír Ünïcode",
+      "flightNumber": "ZZ 301",
+      "origin": "HYD",
+      "destination": "DFW"
+    },
+    {
+      "date": "2024-02-10",
+      "airline": "SYNTHETIC Air",
+      "flightNumber": "ZZ 410",
+      "origin": "DFW",
+      "destination": "QQQ"
+    }
+  ],
+  "airports": {
+    "DFW": {
+      "name": "Dallas Fort Worth International Airport",
+      "city": "Dallas-Fort Worth",
+      "country": "US",
+      "lat": 32.8968,
+      "lon": -97.038
+    },
+    "HYD": {
+      "name": "Rajiv Gandhi International Airport",
+      "city": "Hyderabad",
+      "country": "IN",
+      "lat": 17.2313,
+      "lon": 78.4299
+    },
+    "LHR": {
+      "name": "London Heathrow Airport",
+      "city": "London",
+      "country": "GB",
+      "lat": 51.4707,
+      "lon": -0.4599
+    },
+    "ORD": {
+      "name": "Chicago O'Hare International Airport",
+      "city": "Chicago",
+      "country": "US",
+      "lat": 41.9786,
+      "lon": -87.9048
+    }
+  }
+}

@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "preview:lan": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "check:build": "node scripts/check-build.mjs"
+    "check:build": "node scripts/check-build.mjs",
+    "test": "node --test scripts/test/*.test.mjs",
+    "import:flights": "node scripts/import-flights.mjs"
   },
   "dependencies": {
     "@fontsource/nunito": "5.3.0",
@@ -24,7 +26,9 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.3.0",
+    "topojson-client": "3.1.0",
     "typescript": "7.0.2",
-    "vite": "8.3.8"
+    "vite": "8.3.8",
+    "world-atlas": "2.0.2"
   }
 }

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import './app.css';
 import { FactsDialog } from './features/facts/FactsDialog';
 import { facts } from './features/facts/facts';
-import { AirportPreview } from './features/flights/AirportPreview';
+import { AirportScene } from './features/flights/AirportScene';
 import { BowlMark, FoodMenu } from './features/food/FoodMenu';
 import { RamenInterior } from './features/food/RamenInterior';
 import { ProfilePanel } from './features/profile/ProfilePanel';
@@ -27,7 +27,7 @@ const SCENE_DESCRIPTION: Record<PlaceId, string> = {
   profile: 'A short introduction to Kushal and a link to the resume.',
   ramen: "Inside the ramen shop. Open the menu board to read Kushal's food favorites.",
   stadium: "Kushal's soccer club. The penalty game is not built yet.",
-  airport: 'The flight log is not built yet.',
+  airport: "Kushal's flight log: a route map, a list of flights taken, and totals.",
 };
 
 export function App() {
@@ -139,14 +139,14 @@ export function App() {
         title={placeById(shown).label}
         description={SCENE_DESCRIPTION[shown]}
         closeLabel="Back to town"
-        size={shown === 'ramen' ? 'wide' : 'narrow'}
+        size={shown === 'ramen' || shown === 'airport' ? 'wide' : 'narrow'}
         actions={factsAction}
         onReturnFocus={() => townRef.current?.focusPlace(lastPlace.current)}
       >
         {shown === 'ramen' && <RamenInterior ref={menuButtonRef} onOpenMenu={() => setMenuOpen(true)} />}
         {shown === 'profile' && <ProfilePanel onOpenFacts={openFacts} />}
         {shown === 'stadium' && <StadiumPreview />}
-        {shown === 'airport' && <AirportPreview />}
+        {shown === 'airport' && <AirportScene />}
       </SceneDialog>
 
       <SceneDialog
