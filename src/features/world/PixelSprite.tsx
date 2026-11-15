@@ -22,7 +22,9 @@ interface Run {
 /** Merges equal neighbouring pixels in a row into single rectangles. */
 export function spriteRuns(sprite: SpriteDefinition): Run[] {
   const runs: Run[] = [];
+  const width = sprite.rows[0]?.length ?? 0;
   sprite.rows.forEach((row, y) => {
+    if (row.length !== width) throw new Error(`Sprite "${sprite.name}" row ${y} is ${row.length} wide, expected ${width}`);
     let x = 0;
     while (x < row.length) {
       const key = row[x]!;

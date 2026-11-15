@@ -138,8 +138,8 @@
 
 .closeup__sprite {
   flex: none;
-  width: 64px;
-  height: 112px;
+  width: 80px;
+  height: 140px;
   padding: 4px;
   background: var(--grass);
   border: 2px solid var(--outline);

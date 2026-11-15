@@ -83,18 +83,24 @@
   --cast-shadow-o: 0.22;
 
   --spr-outline: #1c1517;
-  --spr-hoodie: #474a54;
-  --spr-hoodie-lo: #33353d;
-  --spr-jacket: #212025;
-  --spr-jacket-hi: #3d3c45;
-  --spr-tee: #131215;
-  --spr-skin: #9a6442;
-  --spr-skin-lo: #7d4e33;
-  --spr-hair: #18161a;
-  --spr-jeans: #a3c6e6;
-  --spr-jeans-lo: #81a8cf;
-  --spr-shoe: #f6f3ec;
-  --spr-shoe-lo: #cfcac0;
+  --spr-hoodie: #5d616e;
+  --spr-hoodie-lo: #474a56;
+  --spr-hoodie-hi: #747988;
+  --spr-string: #c9ccd6;
+  --spr-jacket: #33323b;
+  --spr-jacket-hi: #55535f;
+  --spr-jacket-lo: #211f26;
+  --spr-zip: #8d909c;
+  --spr-tee: #17161a;
+  --spr-skin: #b47d55;
+  --spr-skin-lo: #946040;
+  --spr-hair: #1d1a1d;
+  --spr-jeans: #a9cbea;
+  --spr-jeans-lo: #84abd2;
+  --spr-jeans-hi: #c6e0f5;
+  --spr-shoe: #fbf9f4;
+  --spr-shoe-lo: #d2cdc3;
+  --spr-sole: #b9b4aa;
 }
 
 /* ---------- Evening: warm light, sunset accents, windows coming on ---------- */
@@ -143,18 +149,24 @@
   --cast-shadow-o: 0.3;
 
   --spr-outline: #1e1317;
-  --spr-hoodie: #4d4950;
-  --spr-hoodie-lo: #37333b;
-  --spr-jacket: #262126;
-  --spr-jacket-hi: #4a3d42;
-  --spr-tee: #151114;
-  --spr-skin: #a5663f;
-  --spr-skin-lo: #824c31;
-  --spr-hair: #1a1518;
-  --spr-jeans: #b3c3da;
-  --spr-jeans-lo: #8e9fc0;
-  --spr-shoe: #fbeedb;
-  --spr-shoe-lo: #d9bfa4;
+  --spr-hoodie: #645d66;
+  --spr-hoodie-lo: #4c4550;
+  --spr-hoodie-hi: #80727a;
+  --spr-string: #dcc8c0;
+  --spr-jacket: #3a3138;
+  --spr-jacket-hi: #62505a;
+  --spr-jacket-lo: #261e24;
+  --spr-zip: #a08a88;
+  --spr-tee: #191317;
+  --spr-skin: #c07f52;
+  --spr-skin-lo: #9a5d3c;
+  --spr-hair: #1f181b;
+  --spr-jeans: #b9c8de;
+  --spr-jeans-lo: #93a3c4;
+  --spr-jeans-hi: #d6dcea;
+  --spr-shoe: #fdf1df;
+  --spr-shoe-lo: #dcc2a7;
+  --spr-sole: #c0a68f;
 }
 
 /* ---------- Night: dark scenery, lit windows and signs ---------- */
@@ -203,16 +215,22 @@
   --cast-shadow-o: 0.4;
 
   --spr-outline: #0b0a14;
-  --spr-hoodie: #44475a;
-  --spr-hoodie-lo: #303246;
-  --spr-jacket: #1d1c29;
-  --spr-jacket-hi: #3d3b52;
-  --spr-tee: #111019;
-  --spr-skin: #8a5a44;
-  --spr-skin-lo: #6c4338;
-  --spr-hair: #14131c;
-  --spr-jeans: #8eaed6;
-  --spr-jeans-lo: #6d8cba;
-  --spr-shoe: #e6e6f0;
-  --spr-shoe-lo: #b3b3cc;
+  --spr-hoodie: #565a72;
+  --spr-hoodie-lo: #40435a;
+  --spr-hoodie-hi: #6d7190;
+  --spr-string: #b5b8d2;
+  --spr-jacket: #2d2c40;
+  --spr-jacket-hi: #4d4b69;
+  --spr-jacket-lo: #1c1b2b;
+  --spr-zip: #7d80a0;
+  --spr-tee: #131220;
+  --spr-skin: #a06e58;
+  --spr-skin-lo: #7f5246;
+  --spr-hair: #17151f;
+  --spr-jeans: #93b3da;
+  --spr-jeans-lo: #7190be;
+  --spr-jeans-hi: #b1cbea;
+  --spr-shoe: #eaeaf4;
+  --spr-shoe-lo: #b7b7d0;
+  --spr-sole: #9494b4;
 }

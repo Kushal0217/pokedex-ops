@@ -14,7 +14,7 @@ import { kushalSprite } from './kushalSprite';
 const VIEW_W = 480;
 const VIEW_H = 340;
 /** Size of one sprite pixel in scene units; the shared sprite scale for the town. */
-export const SPRITE_PX = 2.5;
+export const SPRITE_PX = 1.75;
 
 const INK = { stroke: 'var(--outline)', strokeWidth: 3, strokeLinejoin: 'round' as const };
 const THIN = { stroke: 'var(--outline)', strokeWidth: 2, strokeLinejoin: 'round' as const };
@@ -108,6 +108,18 @@ export function RamenShopExterior({ className }: { className?: string }) {
         ))}
       </g>
 
+      {/* small flowers */}
+      <g shapeRendering="crispEdges">
+        {([[48, 236], [96, 196], [392, 204], [436, 286], [76, 322], [400, 326]] as const).map(([x, y]) => (
+          <g key={`${x}-${y}`}>
+            <rect x={x + 2} y={y + 4} width={2} height={6} fill="var(--grass-lo)" />
+            <rect x={x} y={y} width={6} height={4} fill="var(--noren-mark)" />
+            <rect x={x + 2} y={y - 2} width={2} height={8} fill="var(--noren-mark)" />
+            <rect x={x + 2} y={y} width={2} height={4} fill="var(--light)" />
+          </g>
+        ))}
+      </g>
+
       {/* ---- back trees ---- */}
       <Tree x={74} y={66} s={1.05} />
       <Tree x={410} y={58} s={1.15} />
@@ -142,6 +154,27 @@ export function RamenShopExterior({ className }: { className?: string }) {
       <rect x={340} y={128} width={10} height={124} fill="var(--wood)" {...THIN} />
       <rect x={182} y={150} width={8} height={102} fill="var(--wood)" {...THIN} />
       <rect x={290} y={150} width={8} height={102} fill="var(--wood)" {...THIN} />
+
+      {/* pixel detail: wood grain, plaster flecks, stone joints */}
+      <g shapeRendering="crispEdges">
+        <g fill="var(--wood-lo)">
+          {[134, 344].map((x) => [160, 184, 208, 226].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width={2} height={8} />))}
+          {[185, 293].map((x) => [166, 196, 224].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width={2} height={8} />))}
+        </g>
+        <g fill="var(--wall-lo)">
+          <rect x={148} y={158} width={6} height={2} />
+          <rect x={168} y={164} width={4} height={2} />
+          <rect x={306} y={160} width={6} height={2} />
+          <rect x={326} y={166} width={4} height={2} />
+          <rect x={150} y={228} width={8} height={2} />
+          <rect x={318} y={230} width={8} height={2} />
+        </g>
+        <g fill="var(--outline)" opacity={0.45}>
+          {[152, 174, 306, 328].map((x) => <rect key={x} x={x} y={240} width={2} height={10} />)}
+          <rect x={140} y={244} width={42} height={1} />
+          <rect x={298} y={244} width={42} height={1} />
+        </g>
+      </g>
 
       {/* ---- windows ---- */}
       <ShopWindow x={143} />
@@ -234,8 +267,8 @@ export function RamenShopExterior({ className }: { className?: string }) {
       </g>
 
       {/* ---- Kushal ---- */}
-      <ellipse cx={226} cy={317} rx={19} ry={5} fill="var(--cast-shadow)" opacity="var(--cast-shadow-o)" />
-      <PixelSpriteGroup sprite={kushalSprite} x={206} y={248} px={SPRITE_PX} />
+      <ellipse cx={227} cy={317} rx={20} ry={5} fill="var(--cast-shadow)" opacity="var(--cast-shadow-o)" />
+      <PixelSpriteGroup sprite={kushalSprite} x={205} y={245} px={SPRITE_PX} />
     </svg>
   );
 }

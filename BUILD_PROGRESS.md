@@ -35,10 +35,17 @@ must stay on and reachable; `localhost` on the phone means the phone itself.
 | `node scripts/review-shots.mjs` against `vite preview` | Passed at 1280x800, 390x844 and 320x640 in all three modes: no horizontal overflow; name, menu, Kasama, Chicago and the shop label visible; menu closes with its close button and reopens from the shop label by keyboard. |
 | Screenshots viewed | Desktop and phone, day/evening/night. Fixed during review: selector marker wrapping, menu rule lines crossing text, phone label covering the avatar. |
 
+**Revision after first review (2026-11-15):** Kushal asked for more sprite detail and a lighter avatar.
+The sprite was redrawn at 24 x 42 pixels (was 16 x 28) at the same on-map size: hood highlight and
+drawstrings, quilted jacket seams and zipper, brows, eyes and short facial hair, jeans highlights, sneaker
+laces and soles. Skin, hoodie and jacket tones were lightened in all three modes. The building gained wood
+grain, plaster flecks and stone joints, and the grass gained flowers. Build, `check:build` and
+`review-shots` were re-run and passed. "Lighter" was read as lighter colours; confirm with Kushal.
+
 **Assumptions recorded:**
 - Role line "Software Engineer" is taken from the resume.
 - The menu lists only Kasama (Chicago). No rating, note, dish or link is shown because none was supplied; the Beli link is omitted until its URL exists.
-- The face is minimal (skin tone, two eyes, hood shadow) so no unclear facial detail is invented.
+- The face shows only what the reference shows clearly: dark hair, brows, eyes and short facial hair.
 - Fonts (Pixelify Sans, Nunito; both SIL OFL) are bundled locally, so there are no runtime calls to a font service.
 - GSAP, Radix and Phaser are not installed yet; they join in the slices that first need them (2 and 7).
 - `private/` (avatar reference photo) is git-ignored and never built. `source-assets/` holds the resume and the flight CSV template until the slices that use them.

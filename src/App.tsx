@@ -56,7 +56,7 @@ export function App() {
             <PixelSprite sprite={kushalSprite} className="closeup__sprite" label="Kushal’s map sprite, enlarged" />
             <figcaption>
               <strong>Sprite close-up</strong>
-              Hood up, black jacket, light blue jeans, white sneakers. Shown small on the map; enlarged here for
+              Hood up, black quilted jacket, light blue jeans, white sneakers. Shown small on the map; enlarged here for
               review.
             </figcaption>
           </figure>
