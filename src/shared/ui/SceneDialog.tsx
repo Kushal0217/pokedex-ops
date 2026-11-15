@@ -1,13 +1,27 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import './dialog.css';
 
 /**
- * Escape presses already used to close a dialog. Dialogs stack (interior, then
- * menu, then facts); when the top one unmounts instantly (reduced motion) the
- * next one would otherwise see the same key press and close as well.
+ * Open dialogs, bottom to top. Dialogs stack (a place, then its menu, then the
+ * facts view) and Escape must close exactly the top one. The dialog library
+ * registers its own layers a moment after opening, so a very quick Escape
+ * could reach the dialog underneath; this stack is updated before paint and is
+ * the single authority for Escape instead.
  */
-const usedEscapes = new WeakSet<Event>();
+const openDialogs: { close: () => void }[] = [];
+
+if (typeof document !== 'undefined') {
+  // Capture on window so this runs before the library's own document listener.
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key !== 'Escape' || event.repeat || openDialogs.length === 0) return;
+      openDialogs[openDialogs.length - 1]!.close();
+    },
+    true,
+  );
+}
 
 interface Props {
   open: boolean;
@@ -38,16 +52,25 @@ interface Props {
 export function SceneDialog({
   open, onOpenChange, title, description, closeLabel, tone = 'scene', size = 'wide', mark, actions, onReturnFocus, children,
 }: Props) {
+  const closeRef = useRef(() => onOpenChange(false));
+  closeRef.current = () => onOpenChange(false);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const entry = { close: () => closeRef.current() };
+    openDialogs.push(entry);
+    return () => {
+      openDialogs.splice(openDialogs.indexOf(entry), 1);
+    };
+  }, [open]);
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content
           className={`dialog dialog--${tone} dialog--${size}`}
-          onEscapeKeyDown={(event) => {
-            if (usedEscapes.has(event)) event.preventDefault();
-            else usedEscapes.add(event);
-          }}
+          // Escape is handled by the stack above.
+          onEscapeKeyDown={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => {
             if (onReturnFocus) {
               event.preventDefault();

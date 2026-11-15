@@ -3,8 +3,8 @@
 | Slice | Implementation | User review |
 | --- | --- | --- |
 | 1 | Complete | Approved 2026-11-15 ("Sure make slice two"), after three art revisions |
-| 2 | Complete | Pending |
-| 3 | Not started | Pending |
+| 2 | Complete | Reviewed 2026-11-15: hood down and smaller head requested and done |
+| 3 | Complete | Pending |
 | 4 | Not started | Pending |
 | 5 | Not started | Pending |
 | 6 | Not started | Pending |
@@ -12,8 +12,64 @@
 | 8 | Not started | Pending |
 | 9 | Not started | Pending |
 
-**Next action:** start Slice 3 (town and atmosphere). The GitHub repository still has to be created by
-Kushal before anything can be pushed; all commits are local.
+**Next action:** start Slice 4 (badge case and All projects).
+
+**Where the code is saved:** Kushal's new GitHub repository could not be reached from the build session
+(not visible to it under the names tried). Until it is attached, every commit is also pushed as a backup to
+branch `claude/intelligent-tesla-tb3db1` of `Kushal0217/pokedex-ops`.
+
+## Slice 3 — Town and atmosphere
+
+**Built:**
+- Four places from one data list (`src/features/world/places.ts`): Profile, Ramen shop, Stadium, Airport.
+  Home and gym are omitted until there is approved content.
+- Two layouts generated from that list: a broad town with a crossroads on screens wider than 760px, and one
+  winding vertical path on phones (normal page scrolling, no panning or snapping). Same building art, labels
+  and interactions in both.
+- New original building art: profile studio, stadium (blue-and-garnet seating, no crest), airport terminal
+  with control tower. Each has its own night lighting through the shared `--glow` token.
+- Profile opens a short introduction with the resume; Stadium and Airport open panels that say plainly what
+  is not built yet. No flights, scores or other facts are implied.
+- Production lighting: Auto / Day / Evening / Night. Auto uses the device clock only (Day 07:00-16:59,
+  Evening 17:00-19:59, Night 20:00-06:59), re-checks when the page becomes visible or focused, and sets one
+  timer for the next boundary. Manual choices are saved in `localStorage`; the mode is applied by an inline
+  script before first paint. The temporary preview selector is gone.
+- Walking now covers the whole town: obstacles per building and tree, a doorway into every place, and A*
+  routing on a coarse grid for tap-to-walk.
+
+**Checks run (cloud session, 2026-11-15):**
+
+| Check | Result |
+| --- | --- |
+| `npm run build` | Passed. |
+| `npm run check:build` | Passed. |
+| `node scripts/check-site.mjs` against `vite preview` | Passed twice in a row: 408 checks. |
+
+Added to the script for this slice: every place opens by keyboard (Enter or Space) and by tap/click, closes
+by Escape and by its close control, and returns focus to its own label; both layouts list the same four
+places in the same order; Stadium and Airport state they are unfinished; Profile links the resume; Auto
+resolves correctly at 06:59, 07:00, 16:59, 17:00, 19:59, 20:00, 23:30 and 03:00, both before the app loads
+and after; a page left open across 17:00 changes mode; a changed device clock is picked up when the page
+becomes visible; a manual choice persists across reload and Auto returns to the clock; the selector works
+with arrow keys and with `localStorage` blocked; the page never calls geolocation or the permissions API for
+it; no request leaves the site's own origin.
+
+**Defect found and fixed:** an Escape pressed within a frame or two of a dialog opening could close the
+dialog underneath it (the dialog library registers its layers slightly late). Escape is now handled by an
+explicit stack in `SceneDialog.tsx`, updated before paint.
+
+**Assumptions recorded:**
+- The Profile panel names Capital One and Dallas, TX. Both are on the public resume; edit
+  `src/features/profile/profile.ts` to change or remove them.
+- "Food stop" is served by the ramen shop's menu rather than a separate building (the slice lists a
+  "ramen/food area"). Kasama stays labelled as a real restaurant, separate from the fictional shop.
+- The stadium uses blue and garnet stripes as a nod to Barcelona; no crest or official mark is drawn.
+- Badge case and Projects controls are not on the first screen yet; they are Slice 4.
+
+**Limitations:**
+- Headless Chromium only; no physical phone, Safari or Firefox.
+- Lighting contrast was reviewed by eye in screenshots, not with an automated contrast audit.
+- A real sunrise/sunset is deliberately not modelled.
 
 ## Slice 2 — One complete exploration loop
 
