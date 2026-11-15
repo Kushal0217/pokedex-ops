@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import './app.css';
 import { FactsDialog } from './features/facts/FactsDialog';
 import { facts } from './features/facts/facts';
@@ -6,6 +6,9 @@ import { AirportPreview } from './features/flights/AirportPreview';
 import { BowlMark, FoodMenu } from './features/food/FoodMenu';
 import { RamenInterior } from './features/food/RamenInterior';
 import { ProfilePanel } from './features/profile/ProfilePanel';
+import { BadgeCaseIcon } from './features/projects/Badge';
+import { ProjectViewer, type ProjectTab } from './features/projects/ProjectViewer';
+import { projects, withDevFixture } from './features/projects/projects';
 import { StadiumPreview } from './features/stadium/StadiumPreview';
 import { TownScene, type TownSceneHandle } from './features/world/TownScene';
 import { placeById, type PlaceId } from './features/world/places';
@@ -16,6 +19,8 @@ import { useReducedMotion } from './shared/useReducedMotion';
 import { useLighting } from './theme/timeOfDay';
 
 const FACTS_HASH = '#facts';
+/** Direct links: #projects opens the full list, #badges the badge case. */
+const PROJECT_HASHES: Record<string, ProjectTab> = { '#projects': 'list', '#badges': 'badges' };
 
 /** One-line description of each place's scene, read out with its title. */
 const SCENE_DESCRIPTION: Record<PlaceId, string> = {
@@ -36,6 +41,13 @@ export function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   // A direct link to #facts opens the plain view straight away.
   const [factsOpen, setFactsOpen] = useState(() => window.location.hash === FACTS_HASH);
+
+  const [projectTab, setProjectTab] = useState<ProjectTab | null>(() => PROJECT_HASHES[window.location.hash] ?? null);
+  const projectList = useMemo(() => withDevFixture(projects), []);
+  const caseButton = useRef<HTMLButtonElement>(null);
+  const projectsButton = useRef<HTMLButtonElement>(null);
+  /** Which header button opened the project viewer. */
+  const projectLauncher = useRef<'case' | 'list'>('case');
 
   const townRef = useRef<TownSceneHandle>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -75,10 +87,37 @@ export function App() {
             <h1 className="topbar__name">{facts.name}</h1>
             <p className="topbar__role">{facts.role}</p>
           </div>
-          <button ref={headerFactsButton} type="button" className="facts-button" aria-haspopup="dialog" onClick={openFacts}>
-            Just the facts
-            <span className="facts-button__sub">resume &amp; contact</span>
-          </button>
+          <nav className="topbar__nav" aria-label="Quick links">
+            <button
+              ref={caseButton}
+              type="button"
+              className="nav-button"
+              aria-haspopup="dialog"
+              onClick={() => {
+                projectLauncher.current = 'case';
+                setProjectTab('badges');
+              }}
+            >
+              <BadgeCaseIcon className="nav-button__icon" />
+              Badge case
+            </button>
+            <button
+              ref={projectsButton}
+              type="button"
+              className="nav-button"
+              aria-haspopup="dialog"
+              onClick={() => {
+                projectLauncher.current = 'list';
+                setProjectTab('list');
+              }}
+            >
+              Projects
+            </button>
+            <button ref={headerFactsButton} type="button" className="facts-button" aria-haspopup="dialog" onClick={openFacts}>
+              Just the facts
+              <span className="facts-button__sub">resume &amp; contact</span>
+            </button>
+          </nav>
         </div>
       </header>
 
@@ -91,7 +130,7 @@ export function App() {
           <LightingSelector value={lighting.preference} mode={lighting.mode} onChange={lighting.setPreference} />
         </div>
 
-        <TownScene ref={townRef} layoutId={layoutId} placeOpen={openPlace !== null} reducedMotion={reducedMotion} onOpenPlace={onOpenPlace} />
+        <TownScene ref={townRef} layoutId={layoutId} placeOpen={openPlace !== null || projectTab !== null || factsOpen} reducedMotion={reducedMotion} onOpenPlace={onOpenPlace} />
       </main>
 
       <SceneDialog
@@ -124,6 +163,14 @@ export function App() {
       >
         <FoodMenu />
       </SceneDialog>
+
+      <ProjectViewer
+        tab={projectTab}
+        onTabChange={setProjectTab}
+        projects={projectList}
+        actions={factsAction}
+        onReturnFocus={() => (projectLauncher.current === 'list' ? projectsButton : caseButton).current?.focus({ preventScroll: true })}
+      />
 
       <FactsDialog
         open={factsOpen}

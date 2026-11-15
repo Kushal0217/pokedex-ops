@@ -5,18 +5,62 @@
 | 1 | Complete | Approved 2026-11-15 ("Sure make slice two"), after three art revisions |
 | 2 | Complete | Reviewed 2026-11-15: hood down and smaller head requested and done |
 | 3 | Complete | Pending |
-| 4 | Not started | Pending |
+| 4 | Complete | Pending |
 | 5 | Not started | Pending |
 | 6 | Not started | Pending |
 | 7 | Not started | Pending |
 | 8 | Not started | Pending |
 | 9 | Not started | Pending |
 
-**Next action:** start Slice 4 (badge case and All projects).
+**Next action:** start Slice 5 (food content and the ramen scene cameo).
 
 **Where the code is saved:** Kushal's new GitHub repository could not be reached from the build session
 (not visible to it under the names tried). Until it is attached, every commit is also pushed as a backup to
 branch `claude/intelligent-tesla-tb3db1` of `Kushal0217/pokedex-ops`.
+
+## Slice 4 — Personal project collection
+
+**Built:**
+- One ordered data source, `src/features/projects/projects.ts`. Pokédex Ops Skill is the only entry, first in
+  both views, with the approved draft blurb and status "In progress". It has no links because no URL has been
+  supplied, so no link buttons are rendered.
+- Badge case viewer (`ProjectViewer.tsx`) with two tabs over that list: **Badges** (grid of badge buttons plus
+  a detail panel) and **All projects** (every name, blurb, status and link readable at once).
+- Persistent **Badge case** (with icon) and **Projects** buttons in the sticky header, beside Just the facts.
+  Projects opens the full list directly. `#projects` and `#badges` in the address open each tab.
+- Original badge family in `Badge.tsx`: shared ink rim, facet highlight and shadow; shape, accent and pixel
+  emblem vary. Pokédex Ops is a teal hexagon with a database stack and wrench. Projects without a design get
+  a consistent default badge.
+- Adding a project is one entry in `projects.ts` (plus an optional design in `Badge.tsx`).
+
+**Checks run (cloud session, 2026-11-15):**
+
+| Check | Result |
+| --- | --- |
+| `npm run build` | Passed. |
+| `npm run check:build` | Passed, and now also fails the build if fixture text reaches `dist/`. |
+| `DEV_URL=http://localhost:5173/ node scripts/check-site.mjs` | Passed: 511 checks. |
+
+Added for this slice: both header buttons visible on the first screen; Projects opens on All projects with
+the blurb, status and no link, without touching a badge; Pokédex Ops is first in both views; the badge detail
+text equals the list text; tabs switch with arrow keys without closing the viewer; a badge is selectable by
+keyboard; Escape and the close control return focus to whichever button opened the viewer; the avatar does
+not move while the viewer is open; direct `#projects` / `#badges` links work. With the dev-only fixture
+(`?fixture=projects` on `npm run dev`, 11 badges) at 1280px and 360px: no overflow, no clipped badge names,
+the last badge is reachable and selectable, supplied links appear in both the detail panel and the list.
+
+**Defect found and fixed:** W A S D moved the avatar underneath the facts view and the badge case. Movement
+keys are now off while any dialog is open.
+
+**Assumptions recorded:**
+- The badge detail is an inline panel inside the Badges tab rather than a third stacked dialog.
+- GSAP is still not installed. The spec names it for coordinated animation, but so far every transition is a
+  short CSS one; adding the library for these would only add weight. Kushal can ask for it.
+- Clicking the avatar does not open the case (the PRD marks that as optional).
+
+**Limitations:**
+- The many-badges layout is only exercised with placeholder fixture entries, which never ship.
+- Only links starting with `https://` are rendered; anything else in the data is dropped.
 
 ## Slice 3 — Town and atmosphere
 

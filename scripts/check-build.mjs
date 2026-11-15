@@ -16,6 +16,10 @@ for (const file of walk('dist')) {
   if (/\.(png|jpe?g|webp|heic)$/i.test(file)) problems.push(`${file}: unexpected raster image`);
 }
 if (problems.length) { console.error('FAILED\n' + problems.join('\n')); process.exit(1); }
+// Development fixtures must not ship.
+for (const file of walk('dist').filter((f) => /\.(js|html|css)$/.test(f))) {
+  if (/not a real project|Layout fixture/.test(readFileSync(file, 'utf8'))) problems.push(`${file}: contains development fixture content`);
+}
 const resume = 'dist/resume.pdf';
 if (!existsSync(resume) || sha(resume) !== sha('source-assets/resume.pdf')) problems.push('dist/resume.pdf is missing or differs from source-assets/resume.pdf');
 if (problems.length) { console.error('FAILED\n' + problems.join('\n')); process.exit(1); }

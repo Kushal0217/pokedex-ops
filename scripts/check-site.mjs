@@ -1,6 +1,7 @@
 // Dev tooling: behaviour checks and review screenshots against a running preview.
 // Usage: npm run build && npm run preview   (in one terminal)
 //        node scripts/check-site.mjs [url] [outDir] [scale]
+// Optional: DEV_URL=http://localhost:5173/ (a running `npm run dev`) also tests the dev-only many-badges fixture.
 // Needs Playwright available to Node (it is not a site dependency).
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -89,6 +90,51 @@ async function run(name, contextOptions, { shots = false } = {}) {
     await dialog.getByRole('button', { name: 'Back to town' }).click();
     await page.waitForTimeout(100);
     check((await dialogs(page)) === 0, `${name}: ${label} did not close from its close control`);
+  }
+
+  // Badge case and All projects: one data source, both reachable from the first screen.
+  {
+    const viewer = page.getByRole('dialog', { name: 'Badge case' });
+    const BLURB = 'An eval-driven MCP server and Agent Skill for PostgreSQL/Aurora operations, using Pokémon data to explore query analysis, index proposals, health checks, and guarded index changes.';
+    const projectsButton = page.getByRole('button', { name: 'Projects', exact: true });
+    const caseButton = page.getByRole('button', { name: 'Badge case', exact: true });
+    check(await projectsButton.isVisible() && await caseButton.isVisible(), `${name}: Badge case / Projects controls not visible on the first screen`);
+    // Projects opens the full list directly: blurb readable without touching a badge.
+    await projectsButton.click();
+    check(await viewer.isVisible(), `${name}: Projects did not open the viewer`);
+    check((await viewer.getByRole('tab', { name: 'All projects' }).getAttribute('aria-selected')) === 'true', `${name}: Projects did not open on the All projects tab`);
+    const listItems = viewer.locator('.project-list__item');
+    check((await listItems.first().locator('h3').textContent()).startsWith('Pokédex Ops Skill'), `${name}: Pokédex Ops is not first in All projects`);
+    check((await listItems.first().locator('p').first().textContent()) === BLURB, `${name}: list blurb differs from the approved blurb`);
+    check(await listItems.first().getByText('In progress').isVisible(), `${name}: status missing in the list`);
+    check((await viewer.getByRole('link').count()) === 0, `${name}: a project link is shown although no URL has been supplied`);
+    check((await overflow(page)) <= 0, `${name}: horizontal overflow in All projects`);
+    if (shots) { await page.waitForTimeout(300); await page.screenshot({ path: `${outDir}/${name}-projects-list.png` }); }
+    // Tabs by keyboard; switching keeps the viewer open and the content intact.
+    await viewer.getByRole('tab', { name: 'All projects' }).focus();
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(100);
+    check((await viewer.getByRole('tab', { name: 'Badges' }).getAttribute('aria-selected')) === 'true', `${name}: arrow key did not switch tabs`);
+    check(await viewer.isVisible(), `${name}: switching tabs closed the viewer`);
+    const still = await avatarPos(page);
+    await page.keyboard.down('d'); await page.waitForTimeout(200); await page.keyboard.up('d');
+    check(Math.abs((await avatarPos(page)).left - still.left) < 0.01, `${name}: avatar walked while the badge case was open`);
+    const badge = viewer.getByRole('button', { name: 'Pokédex Ops', exact: true });
+    check((await viewer.locator('.badge-button').first().textContent()) === 'Pokédex Ops', `${name}: Pokédex Ops is not the first badge`);
+    await badge.focus();
+    await page.keyboard.press('Enter');
+    check((await badge.getAttribute('aria-pressed')) === 'true', `${name}: badge not selectable by keyboard`);
+    check((await viewer.locator('.project-detail p').first().textContent()) === BLURB, `${name}: badge detail and list disagree`);
+    if (shots) { await page.waitForTimeout(300); await page.screenshot({ path: `${outDir}/${name}-projects-badges.png` }); }
+    await page.keyboard.press('ArrowRight'); // focus is on a badge, not a tab: must not switch
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+    check((await dialogs(page)) === 0 && (await focusedText(page)) === 'Projects', `${name}: Escape did not return focus to Projects (got "${await focusedText(page)}")`);
+    if (contextOptions.hasTouch) await caseButton.tap(); else await caseButton.click();
+    check((await viewer.getByRole('tab', { name: 'Badges' }).getAttribute('aria-selected')) === 'true', `${name}: Badge case did not open on Badges`);
+    await viewer.getByRole('button', { name: 'Back to town' }).click();
+    await page.waitForTimeout(100);
+    check((await focusedText(page)) === 'Badge case', `${name}: focus not returned to the Badge case button`);
   }
 
   // Scroll the map a little (where the page is tall enough) so we can prove the position survives.
@@ -284,6 +330,42 @@ await run('short-desktop', { viewport: { width: 1024, height: 520 } });
   await bp.getByRole('radio', { name: 'Evening' }).check({ force: true });
   check((await mode(bp)) === 'evening' && pageErrors.length === 0, `lighting: errors without storage: ${pageErrors.join(' | ')}`);
   await blocked.close();
+}
+
+// Direct links.
+for (const [hash, tab] of [['#projects', 'All projects'], ['#badges', 'Badges']]) {
+  const page = await browser.newPage();
+  await page.goto(url + hash, { waitUntil: 'networkidle' });
+  check((await page.getByRole('tab', { name: tab }).getAttribute('aria-selected').catch(() => null)) === 'true', `direct ${hash} link did not open ${tab}`);
+  await page.close();
+}
+
+// Layout with more than eight projects, using the dev-only fixture (never in a production build).
+if (process.env.DEV_URL) {
+  for (const [name, viewport] of [['fixture-desktop', { width: 1280, height: 800 }], ['fixture-phone', { width: 360, height: 640 }]]) {
+    const page = await browser.newPage({ viewport, deviceScaleFactor: scale });
+    await page.goto(process.env.DEV_URL + '?fixture=projects#badges', { waitUntil: 'networkidle' });
+    const viewer = page.getByRole('dialog', { name: 'Badge case' });
+    const count = await viewer.locator('.badge-button').count();
+    check(count === 11, `${name}: expected 11 badges with the fixture, got ${count}`);
+    check((await viewer.locator('.badge-button').first().textContent()) === 'Pokédex Ops', `${name}: real project not first with fixture`);
+    check((await overflow(page)) <= 0, `${name}: horizontal overflow with many badges`);
+    // Every name readable (not clipped) and every badge reachable by scrolling inside the dialog.
+    const clipped = await viewer.locator('.badge-button__name').evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).length);
+    check(clipped === 0, `${name}: ${clipped} badge names are clipped`);
+    await viewer.locator('.badge-button').last().scrollIntoViewIfNeeded();
+    await viewer.locator('.badge-button').last().click();
+    check((await viewer.locator('.project-detail h3').textContent()).includes('Layout fixture 10'), `${name}: last badge not selectable`);
+    check((await viewer.locator('.project-detail').getByRole('link').count()) === 2, `${name}: supplied links not shown in the detail panel`);
+    await page.screenshot({ path: `${outDir}/${name}-badges.png` });
+    await viewer.getByRole('tab', { name: 'All projects' }).click();
+    check((await viewer.locator('.project-list__item').count()) === 11, `${name}: list and badges disagree on count`);
+    check((await viewer.locator('.project-list').getByRole('link', { name: 'Source code' }).count()) === 4, `${name}: links not available directly in the list`);
+    await page.screenshot({ path: `${outDir}/${name}-list.png` });
+    await page.close();
+  }
+} else {
+  console.log('note: DEV_URL not set, skipping the many-badges fixture checks');
 }
 
 // A direct #facts link opens the plain view.

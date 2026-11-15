@@ -14,3 +14,11 @@ node scripts/check-site.mjs   # behaviour checks + screenshots; needs `npm run p
 ```
 
 `private/` is git-ignored: keep the avatar reference photo and raw flight sources there.
+
+## Updating content
+
+- **Projects:** add an entry to `src/features/projects/projects.ts`. It appears in both the Badges and All
+  projects tabs. Leave `links` empty until a real URL exists.
+- **Food favourites:** edit `src/features/food/restaurants.ts`.
+- **Profile text:** edit `src/features/profile/profile.ts`.
+- **Places on the map:** `src/features/world/places.ts`.
