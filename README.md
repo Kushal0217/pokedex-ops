@@ -40,3 +40,7 @@ The path is relative, so start Claude Code from the repo root, or use the absolu
 |---------|--------------|-------------|-------------|-------------------|
 | v1      | –            | –           | –           | –                 |
 | v2      | –            | –           | –           | –                 |
+
+## License
+
+MIT. See [LICENSE](LICENSE).

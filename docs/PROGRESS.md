@@ -330,3 +330,4 @@ session to save usage.
 | 2026-11-13 | #21 | v1 tool descriptions and the v1 skill, versioned in `skills/v1/` (D27). Step 3 done |
 | 2026-11-13 | #22 | Eval task set: 12 dev and 12 held-out tasks with opaque names (D26) |
 | 2026-11-13 | #23 | Two flaky timeout/cancel tests fixed: `perf_counter` on Windows, only active sessions cancelled (D28) |
+| 2026-11-18 | – | MIT license added after the repository was made public (D30) |
