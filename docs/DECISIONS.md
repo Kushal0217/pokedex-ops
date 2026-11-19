@@ -912,3 +912,10 @@ started this runner on the same branch; this one took it over and finished it.
   either trial; the isolation check passed in both.
 - **`--resume` with answers: not yet verified.** Neither task has an
   `answers:` list, so no reply was sent.
+
+## D30. MIT license (2026-11-18)
+
+Kushal made the repository public on 2026-11-18 so his website can link to it, and chose to add a license so
+others may reuse the code; MIT is the short permissive default. Consequence to know: `tasks/heldout/` is now
+public too, so held-out scores from here on are measured on tasks anyone (and future model training data)
+can see. A fresh held-out set kept outside the repository would restore that guarantee.
