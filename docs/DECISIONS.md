@@ -903,9 +903,15 @@ started this runner on the same branch; this one took it over and finished it.
   `claude -p` on stdin. Verified only with fakes so far; the measured trial
   checks it for real.
 
-**Not yet verified for real:** stdin prompts, `Skill(pokedex-ops)` as an
-allow rule, and `--resume` with answers. The 2-task measured trial is the
-first real run.
+**Verified for real** by the measured trial (2026-11-14, Claude Code
+2.1.325, 2 dev tasks, PROGRESS "The measured eval trial"):
+- **Prompts on stdin: verified for real.** Both agents answered their task's
+  question, and both trials passed their checks.
+- **`Skill(pokedex-ops)` as an allow rule: verified for real.** One agent
+  called it and got "Launching skill: pokedex-ops"; no permission denials in
+  either trial; the isolation check passed in both.
+- **`--resume` with answers: not yet verified.** Neither task has an
+  `answers:` list, so no reply was sent.
 
 ## D30. MIT license (2026-11-18)
 

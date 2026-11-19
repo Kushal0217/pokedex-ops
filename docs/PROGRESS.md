@@ -16,7 +16,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
-| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial next |
+| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; baseline trial count is the user's pick |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
 
@@ -249,6 +249,42 @@ full-scale database, 41 tests in `tests/test_tools.py`:
   mcp__pokedex-ops`). A tool that is not allowed fails, because nobody can
   approve it.
 
+**The measured eval trial** (2026-11-14, Claude Code 2.1.325, cloud, full
+seed). Fresh container: built the image, seeded at scale 1.0 (21 s), and
+`python scripts/eval.py --split dev --dry-run` exited 0. Then
+`python scripts/eval.py --split dev --tasks
+slow-trainer-teams-page,banned-galar-trainers --run trial-1` ran both trials
+in 17 s with no `isolation_failed`, no `claude_error` and no permission
+denials. Evidence from `runs/trial-1/` (trial files, `result` and
+`rate_limit_event` events in the transcripts):
+
+| | banned-galar-trainers | slow-trainer-teams-page |
+|---|---|---|
+| Graded checks | pass (`tool_not_called` apply_index; `answer_matches` 206 = 206) | pass (`tool_called` explain_query, propose_index; `index_exists` on teams(trainer_id, created_at)) |
+| Prompt via stdin | yes: answered "206 banned trainers in Galar" | yes: diagnosed the seq scan and built the index |
+| Isolation check | passed (`isolation_problems: []`) | passed |
+| `skill_loaded` | no | yes: `Skill` returned "Launching skill: pokedex-ops", no denial |
+| Turns / tool calls | 3 / 2 | 8 / 6 |
+| Tokens (in+out+cache) | 27,502 | 54,775 |
+| `total_cost_usd` (notional) | $0.044 | $0.041 |
+| Duration | 5.4 s (claude: 3.6 s) | 10.7 s (claude: 9.0 s) |
+| 5-hour utilization, first / last event | 32% / 32% | 32% / 33% |
+| 7-day utilization | 46% / 46% | 46% / 46% |
+
+- **Usage.** The two trials moved the 5-hour window from 32% to 33%, and the
+  7-day window not at all. The meter reports whole percents, so that's 0 to
+  2 points for 2 trials, about 0.5 point per trial, and it includes this
+  orchestrating session's own use in the same minutes.
+- **Baseline estimate** (12 dev + 12 held-out tasks, at about 0.5 point per
+  trial): 1 trial is 24 trials, about 12% of the 5-hour window (bounds 6
+  to 24%) and about $1 notional. 3 trials is 72 trials, about 36% (bounds 18
+  to 72%) and about $3. These two tasks are short (3 and 8 turns); tasks that
+  ask questions or need more steps cost more, so plan for the upper half.
+  At 3 trials the usage guard (stop at 90%) could pause the run, and
+  `--run NAME` resumes it in the next window.
+- **Not exercised:** `--resume` with answers, because neither task has an
+  `answers:` list.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -288,12 +324,11 @@ full-scale database, 41 tests in `tests/test_tools.py`:
 
 ## Next
 
-The eval runner is built and reviewed (D29). Next: the measured trial, 2 dev
-tasks with 1 trial each (`python scripts/eval.py --split dev --tasks <a>,<b>
---run trial-1`). It checks for real what only fakes have tested (prompt on
-stdin, `Skill(pokedex-ops)`, `--resume`), and measures usage per trial. Then
-the user picks the trial count for the v1 baseline. Start it from a fresh
-session to save usage.
+The measured trial passed (see Verified). Next: the user picks the trial
+count for the v1 baseline: 1 trial (about 12% of a 5-hour window) or 3
+trials (about 36%, may need a resume in the next window). `--resume` with
+answers is still unverified; the first task with an `answers:` list will
+exercise it.
 
 ## Open items (added 2026-11-14)
 
