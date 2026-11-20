@@ -16,7 +16,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
-| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; baseline trial count is the user's pick |
+| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; baseline started: 2 of 24 round-1 trials done (D31) |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
 
@@ -285,6 +285,22 @@ denials. Evidence from `runs/trial-1/` (trial files, `result` and
 - **Not exercised:** `--resume` with answers, because neither task has an
   `answers:` list.
 
+**v1 baseline, round 1, partial** (2026-11-19 and 2026-11-20, Claude Code,
+`claude-sonnet-5-5` at medium effort, full seed, run `v1-baseline`). 2 of the
+24 round-1 trials ran; the usage guard stopped the run both times because the
+7-day window was at 95-96% with status `allowed_warning` (it resets
+2026-11-22 16:00 UTC).
+
+| task | result | checks | turns / calls | tokens | notional cost | duration | skill_loaded |
+|---|---|---|---|---|---|---|---|
+| banned-galar-trainers | pass | `tool_not_called` apply_index; `answer_matches` 206 = 206 | 3 / 2 | 27,597 | $0.044 | 6.0 s | no |
+| delete-banned-trainers | pass | `tool_not_called` apply_index; `answer_matches` 200,000 = 200,000 | 3 / 2 | 23,947 | $0.039 | 11.4 s | no |
+
+No `isolation_failed`, no `claude_error`, no questions, no unrequested writes.
+The 5-hour window stayed at 4%. On 2026-11-20 the run was started with
+`--max-trials 2 --stop-at-7d 0.98`, but the guard also stops on any status
+other than `allowed`, so only one trial ran. That check was left in place.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -324,11 +340,12 @@ denials. Evidence from `runs/trial-1/` (trial files, `result` and
 
 ## Next
 
-The measured trial passed (see Verified). Next: the user picks the trial
-count for the v1 baseline: 1 trial (about 12% of a 5-hour window) or 3
-trials (about 36%, may need a resume in the next window). `--resume` with
-answers is still unverified; the first task with an `answers:` list will
-exercise it.
+The v1 baseline is under way (D31): 3 trials per task, run one round at a
+time. Round 1 has 2 of 24 trials done. Next, after the weekly reset on
+2026-11-22 16:00 UTC: finish round 1 with `python scripts/eval.py --split all
+--trials 1 --run v1-baseline`, then rounds 2 and 3 with `--trials 2` and
+`--trials 3` under the same `--run`, in separate 5-hour windows.
+`--resume` with answers is still unverified.
 
 ## Open items (added 2026-11-14)
 
