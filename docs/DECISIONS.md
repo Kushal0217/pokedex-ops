@@ -919,3 +919,23 @@ Kushal made the repository public on 2026-11-18 so his website can link to it, a
 others may reuse the code; MIT is the short permissive default. Consequence to know: `tasks/heldout/` is now
 public too, so held-out scores from here on are measured on tasks anyone (and future model training data)
 can see. A fresh held-out set kept outside the repository would restore that guarantee.
+
+## D31. The v1 baseline uses 3 trials per task, run one round at a time (2026-11-19)
+
+**Delegated by the user** ("do what's best for the project as long as it's not
+taking money out of my subscription").
+- **3 trials, not 1.** One trial per task can't tell a real v1-to-v2
+  difference from chance, and that comparison is the point of the project.
+- **No money at risk.** The rate-limit events show overage disabled
+  (`overageStatus: rejected`), so runs only use the plan's included usage.
+- **One round at a time.** `--trials 1`, then `2`, then `3`, all with
+  `--run v1-baseline`. The runner skips finished trials and doesn't check
+  `trials` on resume, so each rerun adds one round without code changes. A
+  round is about 12% of a 5-hour window (PROGRESS, measured trial), so no
+  single window carries the whole run.
+- **Held-out tasks are public (D30).** The baseline still uses them: neither
+  toolset was tuned on them, so v1 versus v2 stays fair. A fresh private set
+  matters only for a published absolute number.
+- **The usage guard stops on `allowed_warning`** even when `--stop-at-7d` is
+  raised (seen 2026-11-20 at 96%). Kept as is: it is the account's own
+  warning that the weekly cap is near.
