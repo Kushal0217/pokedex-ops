@@ -16,7 +16,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
-| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; baseline round 1 done: 24/24 pass (D31); rounds 2-3 next |
+| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; **v1 baseline done**: 72/72 pass, 3 trials x 24 tasks (D31); at the ceiling |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
 
@@ -323,6 +323,25 @@ point per trial, well under the earlier estimate of 0.5.
   only match v1 on success rate. A v1-to-v2 comparison needs harder tasks or
   other measures (tool calls, tokens, skill use, questions).
 
+**v1 baseline, complete: 3 trials per task** (2026-11-22, run
+`v1-baseline`, rounds 2 and 3 run back to back). The baseline is 72 trials,
+all passing.
+
+| | dev (12 x 3) | held-out (12 x 3) | all (72) |
+|---|---|---|---|
+| Success rate | 36/36 | 36/36 | 72/72 |
+| isolation_failed / claude_error | 0 / 0 | 0 / 0 | 0 / 0 |
+| skill_loaded | 15/36 | 12/36 | 27/72 |
+| Mean tool calls | 3.4 | 3.0 | 3.2 |
+| Mean tokens | 34,529 | 32,631 | 33,580 |
+| Notional cost | $1.29 | $1.20 | $2.49 |
+| Unanswered questions | 0 | 2 | 2 |
+| Tool errors / unrequested writes / timeouts | 0 | 0 | 0 |
+
+Usage for rounds 2 and 3 (48 trials): 5-hour window 7% to 16%, 7-day window
+stayed at 1%. Rounds started from an idle turn failed to reach Docker
+(processes stop between turns, D14), so they were run in the foreground.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -362,12 +381,11 @@ point per trial, well under the earlier estimate of 0.5.
 
 ## Next
 
-Round 1 of the v1 baseline is done: 24/24 pass (see Verified). Before
-rounds 2 and 3, the user decides how to handle the ceiling: add harder tasks
-(dev and a fresh private held-out set, which also answers D30), or compare
-v1 and v2 on efficiency rather than success rate. Rounds 2 and 3 are
-`--trials 2` and `--trials 3` with `--run v1-baseline`; each round is about 3
-points of a 5-hour window. `--resume` with answers is still unverified.
+The v1 baseline is done: 72/72 pass (see Verified). v1 is at the ceiling,
+so the user decides the v2 comparison: harder tasks (dev and a fresh private
+held-out set, which also answers D30), or v1 versus v2 on efficiency (tool
+calls, tokens, skill use) on the current tasks. Then v2 (build step 5) and
+the README (step 6). `--resume` with answers is still unverified.
 
 ## Open items (added 2026-11-14)
 
