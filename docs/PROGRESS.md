@@ -16,7 +16,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 1 | Postgres in Docker, `seed.py`, check that the data loads | **done** |
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
-| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; baseline started: 2 of 24 round-1 trials done (D31) |
+| 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; **v1 baseline done**: 72/72 pass, 3 trials x 24 tasks (D31); at the ceiling |
 | 5 | v2 toolset from the transcripts, re-run and compare | not started |
 | 6 | README with the number, one real failure, and what it turned into | not started |
 
@@ -301,6 +301,47 @@ The 5-hour window stayed at 4%. On 2026-11-20 the run was started with
 `--max-trials 2 --stop-at-7d 0.98`, but the guard also stops on any status
 other than `allowed`, so only one trial ran. That check was left in place.
 
+**v1 baseline, round 1 complete** (2026-11-22, run `v1-baseline`, after the
+weekly reset). The remaining 22 trials ran with the guard's default limits.
+
+| | dev (12) | held-out (12) | all (24) |
+|---|---|---|---|
+| Success rate | 12/12 | 12/12 | 24/24 |
+| isolation_failed / claude_error | 0 / 0 | 0 / 0 | 0 / 0 |
+| skill_loaded | 5/12 | 4/12 | 9/24 |
+| Mean tool calls | 3.3 | 3.0 | 3.2 |
+| Mean tokens | 34,038 | 32,338 | 33,188 |
+| Notional cost | $0.46 | $0.41 | $0.87 |
+| Unanswered questions | 0 | 1 | 1 |
+| Tool errors / unrequested writes / timeouts | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Dev tasks took 2-8 turns and 6-17 s each. Usage: the 22 trials moved the
+5-hour window from 4% to 7% and the 7-day window from 0% to 1%, about 0.15
+point per trial, well under the earlier estimate of 0.5.
+
+- **v1 is at the ceiling.** Every task passed, so on this task set v2 can
+  only match v1 on success rate. A v1-to-v2 comparison needs harder tasks or
+  other measures (tool calls, tokens, skill use, questions).
+
+**v1 baseline, complete: 3 trials per task** (2026-11-22, run
+`v1-baseline`, rounds 2 and 3 run back to back). The baseline is 72 trials,
+all passing.
+
+| | dev (12 x 3) | held-out (12 x 3) | all (72) |
+|---|---|---|---|
+| Success rate | 36/36 | 36/36 | 72/72 |
+| isolation_failed / claude_error | 0 / 0 | 0 / 0 | 0 / 0 |
+| skill_loaded | 15/36 | 12/36 | 27/72 |
+| Mean tool calls | 3.4 | 3.0 | 3.2 |
+| Mean tokens | 34,529 | 32,631 | 33,580 |
+| Notional cost | $1.29 | $1.20 | $2.49 |
+| Unanswered questions | 0 | 2 | 2 |
+| Tool errors / unrequested writes / timeouts | 0 | 0 | 0 |
+
+Usage for rounds 2 and 3 (48 trials): 5-hour window 7% to 16%, 7-day window
+stayed at 1%. Rounds started from an idle turn failed to reach Docker
+(processes stop between turns, D14), so they were run in the foreground.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -340,12 +381,11 @@ other than `allowed`, so only one trial ran. That check was left in place.
 
 ## Next
 
-The v1 baseline is under way (D31): 3 trials per task, run one round at a
-time. Round 1 has 2 of 24 trials done. Next, after the weekly reset on
-2026-11-22 16:00 UTC: finish round 1 with `python scripts/eval.py --split all
---trials 1 --run v1-baseline`, then rounds 2 and 3 with `--trials 2` and
-`--trials 3` under the same `--run`, in separate 5-hour windows.
-`--resume` with answers is still unverified.
+The v1 baseline is done: 72/72 pass (see Verified). v1 is at the ceiling,
+so the user decides the v2 comparison: harder tasks (dev and a fresh private
+held-out set, which also answers D30), or v1 versus v2 on efficiency (tool
+calls, tokens, skill use) on the current tasks. Then v2 (build step 5) and
+the README (step 6). `--resume` with answers is still unverified.
 
 ## Open items (added 2026-11-14)
 
