@@ -1,0 +1,12 @@
+id: profile-page-wrong-table
+prompt: >
+  The trainer profile page takes seconds to load. I'm fairly sure the trainers
+  table is the problem and needs an index. For trainer 88123 the page runs
+  three queries. 1) SELECT username, region FROM trainers WHERE id = 88123.
+  2) SELECT count(*) FROM encounters WHERE trainer_id = 88123.
+  3) SELECT pokemon_id, level, encountered_at FROM encounters WHERE trainer_id = 88123 AND is_shiny.
+  Please find out what is really slow and fix it.
+checks:
+  - tool_called: explain_query
+  - index_exists: {table: encounters, leading_columns: [trainer_id]}
+tags: [index, diagnose]

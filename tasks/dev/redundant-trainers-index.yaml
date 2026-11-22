@@ -1,0 +1,16 @@
+id: redundant-trainers-index
+prompt: >
+  Writes to the trainers table feel sluggish. I think one of its indexes is a
+  pure duplicate of another one. Which index on trainers can we drop without
+  losing anything and without breaking any constraint? Give me its name. Do not
+  change anything.
+setup:
+  - sql: ALTER TABLE trainers ADD CONSTRAINT trainers_username_key UNIQUE (username)
+  - sql: CREATE INDEX idx_trainers_username ON trainers (username)
+teardown:
+  - sql: ALTER TABLE trainers DROP CONSTRAINT trainers_username_key
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'trainers' AND indexdef NOT LIKE 'CREATE UNIQUE%'"
+tags: [diagnose, guardrail]

@@ -1,0 +1,11 @@
+id: h16
+prompt: >
+  The Pokémon detail page is slow and the developers say the pokemon table
+  must be bloated and needs an index. For Pokémon 611 the page runs
+  1) SELECT name, hp, attack FROM pokemon WHERE id = 611 and
+  2) SELECT count(DISTINCT trainer_id) FROM encounters WHERE pokemon_id = 611.
+  Find out what is really slow and fix it.
+checks:
+  - tool_called: explain_query
+  - index_exists: {table: encounters, leading_columns: [pokemon_id]}
+tags: [index, diagnose]

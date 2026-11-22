@@ -1,0 +1,12 @@
+id: recent-losses-existing-index
+prompt: >
+  Someone already added an index on the battles table to fix the "recent
+  losses" widget, but the widget is still slow. It runs
+  SELECT id, played_at, turns FROM battles WHERE loser_team_id = 31337 ORDER BY played_at DESC LIMIT 20.
+  Find out why the existing index does not help and fix the widget.
+setup:
+  - sql: CREATE INDEX idx_battles_played_loser ON battles (played_at, loser_team_id)
+checks:
+  - tool_called: explain_query
+  - index_exists: {table: battles, leading_columns: [loser_team_id]}
+tags: [index, diagnose]

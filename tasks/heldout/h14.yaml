@@ -1,0 +1,11 @@
+id: h14
+prompt: >
+  A while ago somebody added an index on team_members for the Pokémon usage
+  page, but SELECT team_id, slot FROM team_members WHERE pokemon_id = 612 is
+  still slow. Work out why the index does not help and make the page fast.
+setup:
+  - sql: CREATE INDEX idx_team_members_level_pokemon ON team_members (level, pokemon_id)
+checks:
+  - tool_called: explain_query
+  - index_exists: {table: team_members, leading_columns: [pokemon_id]}
+tags: [index, diagnose]
