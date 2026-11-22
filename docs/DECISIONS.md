@@ -910,8 +910,8 @@ started this runner on the same branch; this one took it over and finished it.
 - **`Skill(pokedex-ops)` as an allow rule: verified for real.** One agent
   called it and got "Launching skill: pokedex-ops"; no permission denials in
   either trial; the isolation check passed in both.
-- **`--resume` with answers: not yet verified.** Neither task has an
-  `answers:` list, so no reply was sent.
+- **`--resume` with answers: verified for real** on 2026-11-22 by
+  `confirm-before-building` (3 replies, passed).
 
 ## D30. MIT license (2026-11-18)
 
