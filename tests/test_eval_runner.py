@@ -71,7 +71,7 @@ class FakeRunner:
 
 def make_args(**kw) -> argparse.Namespace:
     d = dict(toolset="v1", model="m", effort="medium", timeout=5, trials=1, max_trials=None,
-             stop_at_5h=0.90, stop_at_7d=0.80, split="dev", vacuum="dirty", tasks=None)
+             stop_at_5h=0.90, stop_at_7d=0.80, split="dev", vacuum="dirty", tasks=None, heldout_dir=None)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -444,7 +444,7 @@ def test_heldout_errors_never_quote_prompt_or_sql(tmp_path):
 def test_dry_run_validates(monkeypatch, tmp_path):
     write_task(tmp_path, "dev", "bad", GOOD.format(id="bad") + "bogus: 1\n")
     real = ev.load_tasks
-    monkeypatch.setattr(ev, "load_tasks", lambda split, only=None: real(split, only, tasks_dir=tmp_path))
+    monkeypatch.setattr(ev, "load_tasks", lambda split, only=None, heldout_dir=None: real(split, only, tasks_dir=tmp_path, heldout_dir=heldout_dir))
     with pytest.raises(SystemExit, match="bad.yaml"):
         ev.main(["--dry-run"])
 
@@ -566,7 +566,7 @@ def test_run_config_blocks_a_different_toolset_model_or_effort(tmp_path):
     base = ev.Baseline(frozenset(), {"t": 1})
     ev.write_run_config(tmp_path, make_args(), base)
     assert ev.read_run_config(tmp_path, make_args())["baseline_counts"] == {"t": 1}
-    for kw in ({"toolset": "v2"}, {"model": "x"}, {"effort": "high"}):
+    for kw in ({"toolset": "v2"}, {"model": "x"}, {"effort": "high"}, {"heldout_dir": "/private"}):
         with pytest.raises(SystemExit, match="cannot resume"):
             ev.read_run_config(tmp_path, make_args(**kw))
     assert ev.read_run_config(tmp_path / "new", make_args()) is None
@@ -645,3 +645,23 @@ def test_heldout_trial_stores_no_check_reasons_or_reply_text(tmp_path):
     assert r["checks"] == [{"check": "answer_matches", "passed": True}]
     assert "replies" not in r and r["reply_count"] == 1
     assert "the teams table" not in json.dumps(r) and "secret" not in json.dumps(r)
+
+
+def test_heldout_dir_replaces_tasks_heldout(tmp_path):
+    write_task(tmp_path, "dev", "d1", GOOD.format(id="d1"))
+    write_task(tmp_path, "heldout", "public", GOOD.format(id="public"))
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "p1.yaml").write_text(GOOD.format(id="p1"), encoding="utf-8")
+    tasks = ev.load_tasks("all", tasks_dir=tmp_path, heldout_dir=private)
+    assert [(t.id, t.split) for t in tasks] == [("d1", "dev"), ("p1", "heldout")]
+    assert [t.id for t in ev.load_tasks("all", tasks_dir=tmp_path)] == ["d1", "public"]
+
+
+def test_heldout_dir_refuses_an_id_that_is_also_a_dev_task(tmp_path):
+    write_task(tmp_path, "dev", "d1", GOOD.format(id="d1"))
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "d1.yaml").write_text(GOOD.format(id="d1"), encoding="utf-8")
+    with pytest.raises(SystemExit, match="duplicate task id"):
+        ev.load_tasks("all", tasks_dir=tmp_path, heldout_dir=private)
