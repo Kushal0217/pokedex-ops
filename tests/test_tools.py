@@ -707,3 +707,37 @@ def test_explain_fallback_that_also_times_out_gives_fitting_advice(monkeypatch):
     with pytest.raises(ToolError, match="so did plain EXPLAIN") as err:
         tools.explain_query("SELECT * FROM pokemon")
     assert "without ANALYZE" not in str(err.value)
+
+
+# --- toolset v2 additions (DECISIONS D32) ---
+
+@pytest.mark.db
+def test_explain_queries_explains_each_and_keeps_going_after_an_error():
+    out = tools.explain_queries(["SELECT 1", "DELETE FROM trainers", "SELECT count(*) FROM types"])
+    first, bad, last = out["results"]
+    assert first["sql"] == "SELECT 1" and first["analyzed"] and "Result" in first["plan"]
+    assert "error" in bad and "plan" not in bad
+    assert last["analyzed"] and "types" in last["plan"]
+
+
+def test_explain_queries_refuses_an_empty_or_oversized_batch():
+    with pytest.raises(ToolError):
+        tools.explain_queries([])
+    with pytest.raises(ToolError, match="At most 5"):
+        tools.explain_queries(["SELECT 1"] * 6)
+
+
+@pytest.mark.db
+def test_apply_index_verify_sql_reports_that_the_new_index_is_used(scratch):
+    out = tools.apply_index(f"CREATE INDEX scratch_v_verify ON {scratch} (v)",
+                            verify_sql=f"SELECT * FROM {scratch} WHERE v = 7 AND id < 50")
+    assert out["created"] and out["verify"]["analyzed"]
+    assert out["verify"]["index_used"] is True
+
+
+@pytest.mark.db
+def test_apply_index_verify_failure_still_reports_the_build(scratch):
+    out = tools.apply_index(f"CREATE INDEX scratch_v_verify2 ON {scratch} (v)",
+                            verify_sql="SELECT * FROM no_such_table")
+    assert out["created"] and out["index"] == "scratch_v_verify2"
+    assert "verification query failed" in out["verify"]["error"]

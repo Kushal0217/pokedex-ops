@@ -464,14 +464,40 @@ def _index_names(table: str) -> set[str] | None:
     return set(names) if found else None
 
 
-def apply_index(index_sql: str, confirm: bool = False) -> dict[str, Any]:
+MAX_EXPLAIN_BATCH = 5
+
+
+def explain_queries(sqls: list[str]) -> dict[str, Any]:
+    """explain_query for up to MAX_EXPLAIN_BATCH queries in one call (toolset v2).
+
+    Each query is explained on its own, exactly as explain_query does it. A query
+    that fails gets {"sql", "error"} and does not stop the others.
+    Output: {"results": [{"sql", "plan", "analyzed", ["note"]} | {"sql", "error"}]}.
+    """
+    if not isinstance(sqls, list) or not sqls:
+        raise ToolError("Send `sqls` as a list of 1 to 5 read-only queries.")
+    if len(sqls) > MAX_EXPLAIN_BATCH:
+        raise ToolError(f"At most {MAX_EXPLAIN_BATCH} queries per call; you sent {len(sqls)}. "
+                        "Split them over several calls.")
+    results: list[dict[str, Any]] = []
+    for sql in sqls:
+        try:
+            results.append({"sql": sql, **explain_query(sql)})
+        except ToolError as err:
+            results.append({"sql": sql, "error": str(err)})
+    return {"results": results}
+
+
+def apply_index(index_sql: str, confirm: bool = False, verify_sql: str | None = None) -> dict[str, Any]:
     """The only write: build one index with CREATE INDEX CONCURRENTLY, through db.create_index().
 
     CONCURRENTLY is added when the agent left it out, so a build never blocks
     writes (DECISIONS A1). The new index is found by comparing the table's index
     names before and after, because the agent may omit the name.
-    `confirm` is unused for now: v1 policy needs no confirmation; v2 may add a
-    dry-run step that uses it.
+    `confirm` is unused for now: v1 policy needs no confirmation.
+    `verify_sql` (toolset v2): after a build, explain that query and report whether
+    its plan uses the new index, so the agent needs no separate explain_query call.
+    A failing verification never hides the build: it is reported under "verify".
     """
     verdict = sqlguard.classify(index_sql)
     if verdict.kind == "read":
@@ -521,4 +547,10 @@ def apply_index(index_sql: str, confirm: bool = False) -> dict[str, Any]:
     }
     if added:
         result["note"] = "CONCURRENTLY was added, so the build did not block writes to the table."
+    if verify_sql:
+        try:
+            explained = explain_query(verify_sql)
+            result["verify"] = {"index_used": name in explained["plan"], **explained}
+        except ToolError as err:
+            result["verify"] = {"error": f"The index was built, but the verification query failed: {err}"}
     return result
