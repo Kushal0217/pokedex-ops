@@ -55,29 +55,6 @@ tasks were never read while the tools were designed.
   on them, but they aren't hidden from future models.
 - **One v2 held-out trial failed,** and its cause wasn't investigated.
 
-## The failure that mattered: the eval leaking answers
-
-The agent never failed in an interesting way; the eval did. A model being evaluated
-will use whatever it can see, and a leak doesn't crash anything. It just makes the
-score look better. These are the leaks that were found, and each became a permanent
-check:
-
-- **The answer key in a tool's output.** The runner computes each task's ground truth
-  with SQL just before the agent starts. `check_health` reports the database's most
-  expensive recent queries, so the agent could have read the answer query straight from
-  a tool. The fix: query statistics are reset right before every trial.
-- **The project's own notes.** Run from the project folder, Claude Code loaded this
-  repository's `CLAUDE.md`, which discusses the held-out tasks. The fix: every trial
-  runs from an empty folder with project-only settings.
-- **The user's own setup.** Personal skills and tools could reach the agent under test.
-  The fix: a strict tool allowlist, and a check of every trial's startup event for
-  exactly the expected tools, the MCP server connected and no personal skill. A trial
-  that fails this is marked `isolation_failed` and left out of every score.
-
-Other defects found in review and fixed: a crash mid-trial skipped the database reset;
-failed sessions were scored as ordinary failures; a timeout left the MCP server running.
-The full list is in [docs/DECISIONS.md](docs/DECISIONS.md) (D29).
-
 ## Quick start
 
 ```sh

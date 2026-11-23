@@ -18,7 +18,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
 | 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; **v1 baseline done**: 72/72 pass, 3 trials x 24 tasks (D31); at the ceiling |
 | 5 | v2 toolset from the transcripts, re-run and compare | **done**: same success, about 10% fewer calls and tokens on held-out (D32) |
-| 6 | README with the number, one real failure, and what it turned into | **done**: results table, the eval-leak story, quick start |
+| 6 | README with the number, one real failure, and what it turned into | **done**: results table, what v2 changed, caveats, quick start (no failure story, by the user's choice) |
 
 ## Module status
 
