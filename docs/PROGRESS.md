@@ -371,6 +371,24 @@ single v2 held-out failure is one trial of one task; its content stays
 private. The v2 run used 5-hour window 16% to 29% and the 7-day window 1% to 5%.
 `pytest`: 422 passed with the database running.
 
+**Private held-out set: v1 versus v2** (2026-11-23, runs `v1-private` and
+`v2-private`, `--split heldout --heldout-dir <private checkout>`, 3 trials x 18
+tasks). Both toolsets were frozen before the set was written (D33).
+
+| | v1 | v2 |
+|---|---|---|
+| Success | 54/54 | 54/54 |
+| Turns | 5.56 | 5.22 (-6.1%) |
+| Tool calls | 3.89 | 3.56 (-8.5%) |
+| Tokens | 39,308 | 37,452 (-4.7%) |
+| Notional cost | $2.46 | $2.37 |
+| skill_loaded | 27/54 | 27/54 |
+| Tool errors / unanswered questions | 4 / 3 | 3 / 3 |
+
+No isolation failures, Claude errors, timeouts or unrequested writes. The two
+runs took the 5-hour window to 66% and the 7-day window to 8%. The task-author
+validated all 18 tasks with psql and the runner's reset. `pytest`: 426 passed.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -410,10 +428,8 @@ private. The v2 run used 5-hour window 16% to 29% and the 7-day window 1% to 5%.
 
 ## Next
 
-All six build steps are done. Optional follow-ups: investigate the one v2
-held-out failure (task-author only, without revealing content), a fresh
-private held-out set so the public number stays meaningful (D30), and the
-open items below.
+All six build steps are done, and the headline now rests on the private
+held-out set (D33). Optional: the open items below.
 
 ## Open items (added 2026-11-14)
 

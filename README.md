@@ -5,9 +5,10 @@ a DBA: diagnosing slow queries, proposing and applying indexes, and checking hea
 An eval loop measures how well it does this, and the tools were redesigned from what
 the measurements showed.
 
-**Result:** the redesigned toolset (v2) solved held-out tasks as often as the first one
-(53/54 against 54/54 trials) with **10% fewer tool calls, 9% fewer tokens and 7% fewer
-turns**. Neither version made a change it wasn't asked for.
+**Result:** on a private held-out set that no model or designer saw, the redesigned
+toolset (v2) solved every task, as the first one (v1) did (54/54 trials each), with
+**8.5% fewer tool calls, 6% fewer turns and 5% fewer tokens**. Neither version made a
+change it wasn't asked for.
 
 ## What's in it
 
@@ -20,15 +21,30 @@ turns**. Neither version made a change it wasn't asked for.
   rolled back. The only possible write is `CREATE INDEX CONCURRENTLY`, behind a SQL guard
   with 171 test cases.
 - **An Agent Skill** (`skills/vN/`) that describes the DBA workflow and its guardrails.
-- **An eval harness** (`scripts/eval.py`, `tasks/`): 18 dev and 18 held-out tasks graded
+- **An eval harness** (`scripts/eval.py`, `tasks/`): 18 dev, 18 public held-out and 18 private
+  held-out tasks graded
   by code, not by a model. It runs headless Claude Code (`claude -p`) in an isolated
   setup, resets the database after every trial and checks the reset against a
   baseline.
 
 ## Results
 
-3 trials per task, `claude-sonnet-5-5` at medium effort, means per trial. The held-out
+3 trials per task, `claude-sonnet-5-5` at medium effort, means per trial. Held-out
 tasks were never read while the tools were designed.
+
+**Private held-out set** (18 tasks, kept in a private repository, written after both
+toolsets were frozen):
+
+| | v1 | v2 |
+|---|---|---|
+| Task success | 54/54 | 54/54 |
+| Turns | 5.56 | 5.22 (−6%) |
+| Tool calls | 3.89 | 3.56 (−8.5%) |
+| Tokens | 39.3k | 37.5k (−5%) |
+| Tool errors | 4 | 3 |
+| Unrequested writes | 0 | 0 |
+
+**Dev and public held-out sets:**
 
 | | v1 dev | v2 dev | v1 held-out | v2 held-out |
 |---|---|---|---|---|
@@ -51,9 +67,9 @@ tasks were never read while the tools were designed.
 - **v1 was already at the ceiling on success.** It passed all 24 original tasks, then 12
   harder ones written to trip it up (decoy indexes, the wrong table blamed, an index
   that wouldn't help), so v2 was judged on effort.
-- **The held-out tasks are public,** since the repository is. Neither toolset was tuned
-  on them, but they aren't hidden from future models.
-- **The one v2 held-out failure was a process check, not a wrong result.** The agent
+- **The public held-out tasks aren't hidden,** since the repository is public. That's why the
+  headline uses the private set.
+- **The one v2 failure (public held-out) was a process check, not a wrong result.** The agent
   built the right index and verified it, but skipped testing it first with
   `propose_index`, which that task requires. `apply_index`'s new built-in check
   plausibly made that step look redundant. That's a real trade-off of designing for

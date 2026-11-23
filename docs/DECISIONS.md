@@ -986,4 +986,12 @@ undo five days of exposure.
   checks (`tool_called`) only where the call itself is the behaviour tested.
   v2's one public held-out failure was a process check on a correct outcome
   (D32).
+- **Result** (3 trials x 18 private tasks): v1 and v2 both 54/54; v2 used 8.5%
+  fewer tool calls, 6.1% fewer turns and 4.7% fewer tokens. This is now the
+  README's headline.
+- **A partial leak to the main session.** The task-author's report described
+  some private tasks by kind (for example a text-prefix `LIKE` task and a join
+  task), more than the no-content rule allows. Both toolsets were already
+  frozen and nothing was changed afterwards, so the comparison isn't affected.
+  A future v3 should be designed without relying on that description.
 
