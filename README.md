@@ -53,7 +53,41 @@ tasks were never read while the tools were designed.
   that wouldn't help), so v2 was judged on effort.
 - **The held-out tasks are public,** since the repository is. Neither toolset was tuned
   on them, but they aren't hidden from future models.
-- **One v2 held-out trial failed,** and its cause wasn't investigated.
+- **The one v2 held-out failure was a process check, not a wrong result.** The agent
+  built the right index and verified it, but skipped testing it first with
+  `propose_index`, which that task requires. `apply_index`'s new built-in check
+  plausibly made that step look redundant. That's a real trade-off of designing for
+  fewer calls, and v2 was not changed after seeing it, since held-out results must
+  not feed back into the design.
+
+## Example: a decoy index (v2, dev task)
+
+The prompt: *"Someone already added an index on the battles table to fix the 'recent
+losses' widget, but the widget is still slow. It runs `SELECT id, played_at, turns FROM
+battles WHERE loser_team_id = 31337 ORDER BY played_at DESC LIMIT 20`. Find out why the
+existing index does not help and fix the widget."*
+
+The agent's calls, after loading the skill:
+
+```text
+describe_schema  {"table": "battles"}                        -> 2M rows, index idx_battles_played_loser
+explain_query    {"sqls": ["SELECT id, played_at, ..."]}      -> Parallel Seq Scan, 42 ms
+propose_index    (loser_team_id, played_at DESC)             -> used by planner, cost -99.9%
+apply_index      same index + verify_sql                     -> built concurrently, 60 MB, index used
+```
+
+From its final answer:
+
+> **Why the old index didn't help:** `idx_battles_played_loser` is on `(played_at,
+> loser_team_id)`, so `played_at` comes first. Postgres can only seek into a btree on its
+> leading column. [...] **Fix:** I created `idx_battles_loser_played` on `battles
+> (loser_team_id, played_at DESC)`. [...] 42 ms before, 0.048 ms after (both measured).
+> [...] I did not drop the old `idx_battles_played_loser` because I can't drop indexes with
+> these tools. It's probably redundant now [...] so someone with DDL access should check
+> whether to remove it.
+
+v1 needed one more call for this task: a separate `explain_query` after the build to
+check that the index was used.
 
 ## Quick start
 
