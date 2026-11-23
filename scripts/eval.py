@@ -159,9 +159,18 @@ def parse_task(path: Path, split: str) -> Task:
                 answers=_validate_answers(path, split, d.get("answers") or []))
 
 
-def load_tasks(split: str, only: list[str] | None = None, tasks_dir: Path = TASKS_DIR) -> list[Task]:
+def load_tasks(split: str, only: list[str] | None = None, tasks_dir: Path = TASKS_DIR,
+               heldout_dir: Path | None = None) -> list[Task]:
+    """`heldout_dir` replaces tasks/heldout, e.g. a private checkout (DECISIONS D33)."""
     splits = ["dev", "heldout"] if split == "all" else [split]
-    tasks = [parse_task(path, s) for s in splits for path in sorted((tasks_dir / s).glob("*.yaml"))]
+
+    def folder(s: str) -> Path:
+        return heldout_dir if s == "heldout" and heldout_dir is not None else tasks_dir / s
+
+    tasks = [parse_task(path, s) for s in splits for path in sorted(folder(s).glob("*.yaml"))]
+    dupes = {t.id for t in tasks if sum(u.id == t.id for u in tasks) > 1}
+    if dupes:
+        raise SystemExit(f"duplicate task id(s) across splits: {len(dupes)}")
     if only:
         missing = set(only) - {t.id for t in tasks}
         if missing:
@@ -849,7 +858,7 @@ def read_run_config(run_dir: Path, args: argparse.Namespace) -> dict[str, Any] |
         cfg = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         raise SystemExit(f"corrupt run config {path}") from None
-    for key in ("toolset", "model", "effort"):
+    for key in ("toolset", "model", "effort", "heldout_dir"):
         if cfg.get(key) != getattr(args, key):
             raise SystemExit(f"cannot resume {run_dir.name}: it was started with {key}={cfg.get(key)!r}, "
                              f"now {getattr(args, key)!r}. Use the same value or a new --run name")
@@ -861,6 +870,7 @@ def write_run_config(run_dir: Path, args: argparse.Namespace, base: Baseline) ->
     write_atomic(run_dir / "config.json", json.dumps({
         "toolset": args.toolset, "model": args.model, "effort": args.effort, "split": args.split,
         "trials": args.trials, "max_turns": 30, "tasks": args.tasks, "baseline_counts": base.counts,
+        "heldout_dir": args.heldout_dir,
     }, indent=2))
 
 
@@ -913,6 +923,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--effort", default=DEFAULT_EFFORT, help="passed to claude as --effort")
     p.add_argument("--tasks", help="comma-separated task ids")
+    p.add_argument("--heldout-dir", help="read held-out tasks from this folder instead of tasks/heldout "
+                   "(a private checkout); recorded in the run, so a resume must use the same one")
     p.add_argument("--timeout", type=int, default=600, help="wall-clock seconds per claude invocation")
     p.add_argument("--run", help="run name (folder under runs/); rerun with it to resume")
     p.add_argument("--max-trials", type=int, help="stop after this many newly run trials")
@@ -923,7 +935,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the plan; run nothing, touch no database")
     args = p.parse_args(argv)
 
-    tasks = load_tasks(args.split, args.tasks.split(",") if args.tasks else None)  # also validates
+    if args.heldout_dir is not None:
+        if not Path(args.heldout_dir).is_dir():
+            raise SystemExit(f"--heldout-dir is not a folder: {args.heldout_dir}")
+        args.heldout_dir = str(Path(args.heldout_dir).resolve())
+    tasks = load_tasks(args.split, args.tasks.split(",") if args.tasks else None,  # also validates
+                       heldout_dir=Path(args.heldout_dir) if args.heldout_dir else None)
     if args.dry_run:
         print("\n".join(plan_lines(tasks, args)))
         return 0

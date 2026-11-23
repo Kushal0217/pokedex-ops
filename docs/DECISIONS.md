@@ -961,3 +961,21 @@ Making tasks much harder was the other option.
   with 7% fewer turns, 10% fewer tool calls and 9% fewer tokens. The held-out
   tasks have been public since D30, but neither toolset was tuned on them.
 
+## D33. A private held-out set in its own repository (2026-11-23)
+
+**Chosen by the user.** The public held-out tasks have been visible since D30,
+so a fresh set lives in the private repository `pokedex-ops-heldout`. The
+main project stays public so the website can link to it; making the whole
+project private was the other option, but it would hide the work and couldn't
+undo five days of exposure.
+- **`--heldout-dir PATH`** makes the runner read held-out tasks from that
+  folder instead of `tasks/heldout`. It is stored in the run's config, and a
+  resumed run refuses a different folder. Task ids must be unique across
+  splits. Private ids start with `p-`.
+- **The same privacy rules apply:** only the task-author reads the private
+  tasks and their transcripts, and reports never reveal their content.
+- **Outcome checks preferred.** The task-author was asked to use process-only
+  checks (`tool_called`) only where the call itself is the behaviour tested.
+  v2's one public held-out failure was a process check on a correct outcome
+  (D32).
+
