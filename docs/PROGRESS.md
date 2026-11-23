@@ -18,7 +18,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
 | 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; **v1 baseline done**: 72/72 pass, 3 trials x 24 tasks (D31); at the ceiling |
 | 5 | v2 toolset from the transcripts, re-run and compare | **done**: same success, about 10% fewer calls and tokens on held-out (D32) |
-| 6 | README with the number, one real failure, and what it turned into | not started |
+| 6 | README with the number, one real failure, and what it turned into | **done**: results table, what v2 changed, caveats, quick start (no failure story, by the user's choice) |
 
 ## Module status
 
@@ -410,8 +410,10 @@ private. The v2 run used 5-hour window 16% to 29% and the 7-day window 1% to 5%.
 
 ## Next
 
-v2 is done (see Verified, D32). Next: the README (build step 6) with the
-v1-to-v2 numbers, one real failure, and what it turned into.
+All six build steps are done. Optional follow-ups: investigate the one v2
+held-out failure (task-author only, without revealing content), a fresh
+private held-out set so the public number stays meaningful (D30), and the
+open items below.
 
 ## Open items (added 2026-11-14)
 
