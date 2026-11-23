@@ -18,12 +18,13 @@ gives an error that lists the real ones.
 rows; `truncated: true` means there were more. Values longer than 200
 characters are cut. Timestamps are ISO 8601. One statement per call.
 
-## explain_query(sql)
+## explain_query(sqls)
 
-`{"plan": <text>, "analyzed": true}`: the text output of
-`EXPLAIN (ANALYZE, BUFFERS)`. If the query runs longer than the timeout, the
-plan comes from plain EXPLAIN instead: `analyzed: false`, a `note`, and
-estimates only (no actual rows, times or buffers).
+`{"results": [{"sql", "plan", "analyzed"}, ...]}`, one entry per query (1 to
+5), in order: the text output of `EXPLAIN (ANALYZE, BUFFERS)`. If a query runs
+longer than the timeout, its plan comes from plain EXPLAIN instead:
+`analyzed: false`, a `note`, and estimates only. A query that fails gets
+`{"sql", "error"}` and the others still run.
 
 ## propose_index(sql, index_sql)
 
@@ -45,11 +46,13 @@ counts began), `top_queries` (top 5 by total time) and `replication`. The
 tools' own sessions and queries are left out. A section that fails shows
 `{"error": ...}`.
 
-## apply_index(index_sql)
+## apply_index(index_sql, verify_sql?)
 
 `{"created": true, "index", "table", "definition", "valid", "size",
 "elapsed_ms", "concurrently_added"}`, plus a `note` when CONCURRENTLY was
-added. With `IF NOT EXISTS` and a name that exists: `{"created": false,
+added. With `verify_sql`, also `verify`: `{"index_used", "plan",
+"analyzed"}` for that query after the build, or `{"error"}` if it failed (the
+index is still built). With `IF NOT EXISTS` and a name that exists: `{"created": false,
 "table", "note"}`. The build waits at most 5 s for a lock and runs at most
 300 s. If a concurrent build fails, it can leave an INVALID index; the error
 names it.

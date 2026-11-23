@@ -939,3 +939,25 @@ taking money out of my subscription").
 - **The usage guard stops on `allowed_warning`** even when `--stop-at-7d` is
   raised (seen 2026-11-20 at 96%). Kept as is: it is the account's own
   warning that the weekly cap is near.
+
+## D32. v2 targets effort, not success rate (2026-11-23)
+
+**Chosen by the user** (option 1 of two): v1 passed all 108 trials, harder
+tasks included, so v1 and v2 are compared on turns, tool calls and tokens.
+Making tasks much harder was the other option.
+- **From the v1 dev transcripts only.** Index fixes took five calls, the
+  last an `explain_query` only to check the new index; several slow queries
+  took one `explain_query` each; simple counts began with a whole-database
+  `describe_schema`.
+- **Changes.** `explain_query` takes 1-5 queries (`tools.explain_queries`);
+  `apply_index` takes an optional `verify_sql` and returns `index_used` and the
+  new plan; descriptions and the skill say when a call can be skipped. Tool
+  names are unchanged, so task checks still apply. The handler changes are
+  additive: v1 doesn't expose the new parameter, so v1 behaves as before.
+- **`.mcp.json` serves v2,** matching the loaded skill. A test now fails if
+  they drift apart, since a v2 skill on a v1 server describes parameters the
+  server rejects.
+- **Result** (3 trials x 36 tasks): held-out success 53/54 against 54/54,
+  with 7% fewer turns, 10% fewer tool calls and 9% fewer tokens. The held-out
+  tasks have been public since D30, but neither toolset was tuned on them.
+

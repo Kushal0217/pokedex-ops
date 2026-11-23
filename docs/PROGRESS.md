@@ -17,7 +17,7 @@ Steps from ARCHITECTURE.md, "Build order".
 | 2 | `sqlguard` + `db` + read-only tools, with tests | **done** |
 | 3 | SKILL.md and the task set | **done**: v1 descriptions and skill (D27), 12 dev + 12 held-out tasks (D26) |
 | 4 | Baseline eval with v1, recorded honestly | **in progress**: runner built and reviewed (D29); measured trial passed; **v1 baseline done**: 72/72 pass, 3 trials x 24 tasks (D31); at the ceiling |
-| 5 | v2 toolset from the transcripts, re-run and compare | not started |
+| 5 | v2 toolset from the transcripts, re-run and compare | **done**: same success, about 10% fewer calls and tokens on held-out (D32) |
 | 6 | README with the number, one real failure, and what it turned into | not started |
 
 ## Module status
@@ -26,12 +26,13 @@ Steps from ARCHITECTURE.md, "Build order".
 |--------|--------|-------|
 | `server/sqlguard.py` | implemented, plus `strip_terminator`, `leading_keyword` and `add_concurrently` helpers | `tests/test_sqlguard.py`, 171 cases |
 | `server/mcp_server.py` | implemented: starts over stdio and lists the toolset's tools | `tests/test_mcp_server.py` |
+| `server/toolsets/v2.py` | batched `explain_query`, `apply_index` with `verify_sql`, descriptions that say when to skip a call (D32) | `tests/test_tools.py` (4 new) |
 | `server/toolsets/v1.py` | names and schemas done (`propose_index` requires `index_sql`, D24); v1 descriptions written (D27) | `tests/test_scaffold.py` |
 | `server/db.py` | implemented: pooled read and write paths, retry on a dead connection, agent-readable errors, hypopg state cleared on each read checkout | `tests/test_db.py`, 26 cases (25 need the database) |
 | `server/tools.py` | all six tools implemented | `tests/test_tools.py`, 92 cases (77 need the database) |
 | `scripts/seed.py` | implemented | `tests/test_seed.py`, 40 cases (5 need the database) |
 | `scripts/eval.py` | implemented: `claude -p` runner, code-only grading, verified reset, resumable runs, usage guard (D29) | `tests/test_eval.py`, `tests/test_eval_runner.py` |
-| `skills/v1/`, `.claude/skills/pokedex-ops/` | v1 skill: workflow, guardrails, tool reference; the loaded copy equals the newest version (D27) | `tests/test_scaffold.py` |
+| `skills/v1/`, `skills/v2/`, `.claude/skills/pokedex-ops/` | v2 skill is the loaded copy; v1 skill: workflow, guardrails, tool reference; the loaded copy equals the newest version (D27) | `tests/test_scaffold.py` |
 | `tasks/dev`, `tasks/heldout` | 12 dev and 12 held-out tasks (`h01`-`h12`), validated with psql and hypopg (D26) | YAML parse and id checks by the task-author |
 
 Test suite: 418 tests, all passing locally with the database running. CI
@@ -352,6 +353,24 @@ now has 36 trials, all passing). Dev tasks took 2-13 turns and 1-9 tool calls.
 - **`--resume` with answers: verified for real.** `confirm-before-building`
   got 3 replies through `--resume` and passed.
 
+**v1 versus v2, 3 trials x 36 tasks each** (2026-11-23, runs `v1-baseline`
+and `v2`, `claude-sonnet-5-5` at medium effort). Means per trial:
+
+| | v1 dev | v2 dev | v1 held-out | v2 held-out |
+|---|---|---|---|---|
+| Success | 54/54 | 54/54 | 54/54 | 53/54 |
+| Turns | 5.93 | 5.11 (-14%) | 4.91 | 4.57 (-7%) |
+| Tool calls | 4.20 | 3.43 (-18%) | 3.46 | 3.13 (-10%) |
+| Tokens | 41,136 | 36,644 (-11%) | 35,924 | 32,692 (-9%) |
+| Notional cost (all trials) | $2.58 | $2.24 | $1.88 | $1.78 |
+| skill_loaded | 30/54 | 28/54 | 24/54 | 24/54 |
+| Tool errors | 2 | 0 | 0 | 0 |
+
+No isolation failures, Claude errors or unrequested writes in either run. The
+single v2 held-out failure is one trial of one task; its content stays
+private. The v2 run used 5-hour window 16% to 29% and the 7-day window 1% to 5%.
+`pytest`: 422 passed with the database running.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -391,10 +410,8 @@ now has 36 trials, all passing). Dev tasks took 2-13 turns and 1-9 tool calls.
 
 ## Next
 
-v1 passes all 36 tasks, including the 12 harder ones. The user decides how
-to get a measurable v1-to-v2 difference: compare efficiency (turns, tool
-calls, tokens, skill use), or make the tasks much harder (long multi-step
-incidents).
+v2 is done (see Verified, D32). Next: the README (build step 6) with the
+v1-to-v2 numbers, one real failure, and what it turned into.
 
 ## Open items (added 2026-11-14)
 
