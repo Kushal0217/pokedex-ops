@@ -954,6 +954,9 @@ Making tasks much harder was the other option.
   new plan; descriptions and the skill say when a call can be skipped. Tool
   names are unchanged, so task checks still apply. The handler changes are
   additive: v1 doesn't expose the new parameter, so v1 behaves as before.
+- **`.mcp.json` serves v2,** matching the loaded skill. A test now fails if
+  they drift apart, since a v2 skill on a v1 server describes parameters the
+  server rejects.
 - **Result** (3 trials x 36 tasks): held-out success 53/54 against 54/54,
   with 7% fewer turns, 10% fewer tool calls and 9% fewer tokens. The held-out
   tasks have been public since D30, but neither toolset was tuned on them.
