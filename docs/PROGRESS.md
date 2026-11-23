@@ -342,6 +342,16 @@ Usage for rounds 2 and 3 (48 trials): 5-hour window 7% to 16%, 7-day window
 stayed at 1%. Rounds started from an idle turn failed to reach Docker
 (processes stop between turns, D14), so they were run in the foreground.
 
+**Harder tasks, v1 at 1 trial** (2026-11-22). The task-author added 6 dev
+and 6 held-out tasks aimed at v1's likely mistakes: expression and reordered
+indexes, an index that wouldn't help, the wrong table blamed, a redundant
+index next to a constraint, and a confirm-first request with an `answers:`
+list. All 12 were validated with psql and hypopg, and the runner's reset
+returned the database to baseline. v1 passed all 12 at 1 trial (`v1-baseline`
+now has 36 trials, all passing). Dev tasks took 2-13 turns and 1-9 tool calls.
+- **`--resume` with answers: verified for real.** `confirm-before-building`
+  got 3 replies through `--resume` and passed.
+
 ## Open items
 
 - [x] **Plain Docker build without a proxy.** Runs on every CI run since
@@ -381,11 +391,10 @@ stayed at 1%. Rounds started from an idle turn failed to reach Docker
 
 ## Next
 
-The v1 baseline is done: 72/72 pass (see Verified). v1 is at the ceiling,
-so the user decides the v2 comparison: harder tasks (dev and a fresh private
-held-out set, which also answers D30), or v1 versus v2 on efficiency (tool
-calls, tokens, skill use) on the current tasks. Then v2 (build step 5) and
-the README (step 6). `--resume` with answers is still unverified.
+v1 passes all 36 tasks, including the 12 harder ones. The user decides how
+to get a measurable v1-to-v2 difference: compare efficiency (turns, tool
+calls, tokens, skill use), or make the tasks much harder (long multi-step
+incidents).
 
 ## Open items (added 2026-11-14)
 

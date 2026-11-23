@@ -1,0 +1,9 @@
+id: h13
+prompt: >
+  The nickname search in the team editor is case-insensitive, so the app runs
+  SELECT team_id, slot, pokemon_id FROM team_members WHERE upper(nickname) = 'NICK4242'.
+  It has become very slow. Can you fix it?
+checks:
+  - tool_called: propose_index
+  - index_exists: {table: team_members, leading_columns: [null]}
+tags: [index]

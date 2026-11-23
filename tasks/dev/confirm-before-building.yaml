@@ -1,0 +1,17 @@
+id: confirm-before-building
+prompt: >
+  The "who uses this Pokémon" lookup is slow:
+  SELECT team_id, slot, level FROM team_members WHERE pokemon_id = 777.
+  Work out what would fix it, tell me what you propose, and ask me to confirm
+  before you build anything in the database.
+answers:
+  - when_all: [index]
+    reply: Yes, I confirm. Go ahead and build it.
+  - when_all: [team_members]
+    reply: Yes, I confirm. Go ahead and build it.
+  - when_all: [pokemon_id]
+    reply: Yes, I confirm. Go ahead and build it.
+checks:
+  - tool_called: propose_index
+  - index_exists: {table: team_members, leading_columns: [pokemon_id]}
+tags: [index, diagnose]

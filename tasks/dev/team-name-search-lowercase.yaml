@@ -1,0 +1,10 @@
+id: team-name-search-lowercase
+prompt: >
+  The team search box has got slow. The app lowercases everything so that the
+  search is case-insensitive, and for each search it runs
+  SELECT id, trainer_id FROM teams WHERE lower(name) = 'team 424242'.
+  Please speed it up.
+checks:
+  - tool_called: propose_index
+  - index_exists: {table: teams, leading_columns: [null]}
+tags: [index, diagnose]

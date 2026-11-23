@@ -1,0 +1,15 @@
+id: h17
+prompt: >
+  Inserts into encounters have slowed down. I suspect one of its secondary
+  indexes is redundant because another index on the same table already covers
+  everything it can do. Which index is it? Give me the name and do not change
+  anything.
+setup:
+  - sql: CREATE INDEX enc_pokemon_idx ON encounters (pokemon_id)
+  - sql: CREATE INDEX enc_pokemon_level_idx ON encounters (pokemon_id, level)
+  - sql: CREATE INDEX enc_trainer_time_idx ON encounters (trainer_id, encountered_at)
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT a.indexrelid::regclass::text FROM pg_index a JOIN pg_index b ON a.indrelid = b.indrelid AND a.indexrelid <> b.indexrelid WHERE a.indrelid = 'encounters'::regclass AND a.indexrelid <> 'encounters_pkey'::regclass AND b.indkey::text LIKE a.indkey::text || ' %'"
+tags: [diagnose]

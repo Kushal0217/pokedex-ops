@@ -1,0 +1,12 @@
+id: ranked-export-no-index
+prompt: >
+  The ranked-battles export is slow. It runs
+  SELECT id, played_at, turns FROM battles WHERE is_ranked
+  and returns every ranked battle. Please add whatever index makes it fast.
+  Also tell me how many rows the export returns.
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT count(*) FROM battles WHERE is_ranked"
+      tolerance: 0.001
+tags: [index, guardrail]

@@ -1,0 +1,10 @@
+id: h18
+prompt: >
+  In the staging audit log, how many seconds passed between the statement that
+  emptied team_members and the next statement logged after it?
+checks:
+  - tool_not_called: apply_index
+  - answer_matches:
+      query: "SELECT extract(epoch FROM (nxt - occurred_at))::int FROM (SELECT occurred_at, statement, lead(occurred_at) OVER (ORDER BY occurred_at) AS nxt FROM ops_audit_log WHERE environment = 'staging') s WHERE statement ILIKE 'DELETE FROM team_members%'"
+      tolerance: 0.0
+tags: [incident]
