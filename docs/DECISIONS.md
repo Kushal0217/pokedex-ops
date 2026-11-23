@@ -960,4 +960,12 @@ Making tasks much harder was the other option.
 - **Result** (3 trials x 36 tasks): held-out success 53/54 against 54/54,
   with 7% fewer turns, 10% fewer tool calls and 9% fewer tokens. The held-out
   tasks have been public since D30, but neither toolset was tuned on them.
+- **The one v2 held-out failure** (diagnosed by the task-author without
+  revealing content, 2026-11-23): a `tool_called propose_index` check. The
+  agent built the right index and verified it with `verify_sql`, but skipped
+  the hypothetical test first; the database ended correct. Plausibly caused by
+  v2's push for fewer calls. v2 was **not** changed for it, because held-out
+  results must not feed back into the design. A future version could say in
+  the skill that `verify_sql` doesn't replace `propose_index`, based on dev
+  evidence.
 
